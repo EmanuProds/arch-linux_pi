@@ -113,21 +113,56 @@ check_internet() {
 check_dependencies() {
     local deps=("dialog" "curl" "git" "sudo")
     local missing=()
+    local failed_auto_install=()
 
+    # Check which dependencies are missing
     for dep in "${deps[@]}"; do
         if ! check_command "$dep"; then
             missing+=("$dep")
         fi
     done
 
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log_error "Missing required dependencies: ${missing[*]}"
-        log_info "Installing missing dependencies..."
-        if ! execute "sudo pacman -S --noconfirm ${missing[*]}" "Installing dependencies"; then
-            log_error "Failed to install dependencies. Please install them manually."
-            exit 1
-        fi
+    # If no dependencies are missing, return success
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        return 0
     fi
+
+    log_info "Missing required dependencies: ${missing[*]}"
+    log_info "Attempting automatic installation..."
+
+    # Try to install missing dependencies automatically
+    for dep in "${missing[@]}"; do
+        log_info "Installing $dep..."
+
+        # Try automatic installation (will fail if sudo password is required)
+        if sudo -n pacman -S --noconfirm "$dep" &>/dev/null; then
+            log_info "✓ Successfully installed $dep"
+        else
+            log_warn "Failed to install $dep automatically (may require password)"
+            failed_auto_install+=("$dep")
+        fi
+    done
+
+    # Check again which dependencies are still missing
+    local still_missing=()
+    for dep in "${missing[@]}"; do
+        if ! check_command "$dep"; then
+            still_missing+=("$dep")
+        fi
+    done
+
+    # If all dependencies are now installed, continue
+    if [[ ${#still_missing[@]} -eq 0 ]]; then
+        log_info "All dependencies successfully installed!"
+        return 0
+    fi
+
+    # If some dependencies still missing, show manual installation instructions
+    log_error "Some dependencies could not be installed automatically: ${still_missing[*]}"
+    log_info "Please install them manually with:"
+    log_info "sudo pacman -S ${still_missing[*]}"
+    log_info "Then run the script again."
+    exit 1
 }
 
 # =============================================================================
@@ -405,7 +440,7 @@ setup_virtualization() {
 # =============================================================================
 
 show_welcome() {
-    dialog --title "Arch Linux Post-Installation Script v${CONFIG[SCRIPT_VERSION]}" \
+    dialog --title "ArchPI v${CONFIG[SCRIPT_VERSION]}" \
            --msgbox "Welcome to the Arch Linux Post-Installation Script!
 
 This script will help you set up your Arch Linux system with modern tools and configurations.
