@@ -51,6 +51,14 @@ Um script moderno e interativo de automação de pós-instalação para sistemas
 - 🐧 Configuração do QEMU e virt-manager
 - 🔒 Configuração do Libvirt
 
+### 🔧 Recursos Adicionais
+- 🖥️ Configuração de tema Qt (qt5ct/qt6ct)
+- 🖨️ Suporte a impressora e scanner (CUPS)
+- 🌐 Configuração do Flatpak e Flathub
+- 🔒 Configuração de firewall (firewalld)
+- ⌨️ Aliases e configuração personalizada do Bash
+- 🎨 Logo e identidade visual personalizada
+
 ## 📋 Requisitos
 
 - 🐧 Sistema Arch Linux
@@ -102,3 +110,13 @@ Um script moderno e interativo de automação de pós-instalação para sistemas
 ## 📄 Licença
 
 Licença MIT - veja detalhes no repositório.
+
+## ⚠️ Notas Importantes
+
+- **Backup Primeiro**: Sempre faça backup de dados importantes antes de executar scripts de pós-instalação
+- **Reinicialização Necessária**: Algumas mudanças requerem reinicialização do sistema para ter efeito
+- **Extensões GNOME**: Após a configuração, use o Extension Manager para instalar extensões recomendadas
+- **Testes**: Este script foi testado no Arch Linux com desktop GNOME
+- **Pacotes AUR**: Pacotes AUR são instalados usando paru (helper AUR)
+- **Drivers Gráficos**: O script detecta automaticamente a GPU e instala drivers apropriados
+- **Virtualização**: Requer suporte à virtualização de hardware na BIOS/UEFI

@@ -51,6 +51,14 @@ A modern, interactive post-installation automation script for Arch Linux systems
 - 🐧 QEMU and virt-manager setup
 - 🔒 Libvirt configuration
 
+### 🔧 Additional Features
+- 🖥️ Qt theme configuration (qt5ct/qt6ct)
+- 🖨️ Printer and scanner support (CUPS)
+- 🌐 Flatpak and Flathub setup
+- 🔒 Firewall configuration (firewalld)
+- ⌨️ Custom Bash aliases and configuration
+- 🎨 Custom logo and branding
+
 ## 📋 Requirements
 
 - 🐧 Arch Linux system
@@ -102,3 +110,13 @@ A modern, interactive post-installation automation script for Arch Linux systems
 ## 📄 License
 
 MIT License - see repository for details.
+
+## ⚠️ Important Notes
+
+- **Backup First**: Always backup important data before running post-installation scripts
+- **Reboot Required**: Some changes require system reboot to take effect
+- **GNOME Extensions**: After setup, use Extension Manager to install recommended extensions
+- **Testing**: This script has been tested on Arch Linux with GNOME desktop
+- **AUR Packages**: AUR packages are installed using paru (AUR helper)
+- **Graphics Drivers**: Script automatically detects GPU and installs appropriate drivers
+- **Virtualization**: Requires hardware virtualization support in BIOS/UEFI
