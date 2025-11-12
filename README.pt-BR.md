@@ -96,7 +96,6 @@ Um script moderno e interativo de automação de pós-instalação para sistemas
 │   └── cursor/          # 🖱️ Temas de cursor personalizados
 ├── README.md            # 📄 Este arquivo (Inglês)
 ├── README.pt-BR.md      # 📄 Versão em português
-└── archPI-personal.sh   # 📜 Script pessoal legado (deprecated)
 ```
 
 ## 🛡️ Recursos de Segurança
