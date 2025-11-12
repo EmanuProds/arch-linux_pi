@@ -1,0 +1,656 @@
+#!/bin/bash
+#
+# Post-Installation Arch Linux Script
+# Modern, interactive post-installation automation for Arch Linux
+#
+# Author: Emanuel Pereira
+# Website: https://github.com/EmanuProds/Post-Installation_Arch-Linux
+# License: MIT
+#
+# This script provides a comprehensive, interactive post-installation setup
+# for Arch Linux systems with modern best practices and error handling.
+
+set -euo pipefail
+
+# =============================================================================
+# CONFIGURATION AND CONSTANTS
+# =============================================================================
+
+declare -A CONFIG=(
+    ["SCRIPT_VERSION"]="3.0.0"
+    ["TEMP_DIR"]="$HOME/.archpi_temp"
+    ["BACKUP_DIR"]="$HOME/.archpi_backup"
+    ["LOG_FILE"]="$HOME/.archpi.log"
+    ["ASSETS_DIR"]="assets"
+    ["DIALOG_HEIGHT"]=20
+    ["DIALOG_WIDTH"]=70
+)
+
+# Color codes for output
+declare -A COLORS=(
+    ["RED"]='\033[0;31m'
+    ["GREEN"]='\033[0;32m'
+    ["YELLOW"]='\033[1;33m'
+    ["BLUE"]='\033[0;34m'
+    ["NC"]='\033[0m' # No Color
+)
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+# Logging functions
+log_info() {
+    echo -e "${COLORS[GREEN]}[INFO]${COLORS[NC]} $1" | tee -a "${CONFIG[LOG_FILE]}"
+}
+
+log_warn() {
+    echo -e "${COLORS[YELLOW]}[WARN]${COLORS[NC]} $1" | tee -a "${CONFIG[LOG_FILE]}"
+}
+
+log_error() {
+    echo -e "${COLORS[RED]}[ERROR]${COLORS[NC]} $1" | tee -a "${CONFIG[LOG_FILE]}"
+}
+
+# Check if command exists
+check_command() {
+    if ! command -v "$1" &> /dev/null; then
+        log_error "Command '$1' not found. Please install it first."
+        return 1
+    fi
+    return 0
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -eq 0 ]]; then
+        log_error "This script should not be run as root for user-specific operations."
+        return 1
+    fi
+    return 0
+}
+
+# Backup file before modification
+backup_file() {
+    local file="$1"
+    local backup="${CONFIG[BACKUP_DIR]}/$(basename "$file").backup.$(date +%Y%m%d_%H%M%S)"
+
+    if [[ -f "$file" ]]; then
+        mkdir -p "${CONFIG[BACKUP_DIR]}"
+        cp "$file" "$backup"
+        log_info "Backed up $file to $backup"
+    fi
+}
+
+# Execute command with error handling
+execute() {
+    local cmd="$1"
+    local description="${2:-Executing command}"
+
+    log_info "$description: $cmd"
+    if eval "$cmd"; then
+        log_info "✓ $description completed successfully"
+        return 0
+    else
+        log_error "✗ $description failed"
+        return 1
+    fi
+}
+
+# Check internet connectivity
+check_internet() {
+    if ! ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+        log_error "No internet connection detected. Please check your network."
+        return 1
+    fi
+    return 0
+}
+
+# =============================================================================
+# DEPENDENCY CHECKS
+# =============================================================================
+
+check_dependencies() {
+    local deps=("dialog" "curl" "git" "sudo")
+    local missing=()
+
+    for dep in "${deps[@]}"; do
+        if ! check_command "$dep"; then
+            missing+=("$dep")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required dependencies: ${missing[*]}"
+        log_info "Installing missing dependencies..."
+        if ! execute "sudo pacman -S --noconfirm ${missing[*]}" "Installing dependencies"; then
+            log_error "Failed to install dependencies. Please install them manually."
+            exit 1
+        fi
+    fi
+}
+
+# =============================================================================
+# SYSTEM CONFIGURATION FUNCTIONS
+# =============================================================================
+
+setup_pacman() {
+    log_info "Setting up Pacman configuration..."
+
+    # Backup pacman.conf
+    backup_file "/etc/pacman.conf"
+
+    # Enable multilib repository
+    sudo sed -i '/^\[multilib\]$/,/^\[/s/^#//' /etc/pacman.conf
+
+    # Enable colors and other improvements
+    sudo sed -i 's/^#Color/Color/' /etc/pacman.conf
+    sudo sed -i 's/^#ILoveCandy/ILoveCandy/' /etc/pacman.conf
+    sudo sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
+
+    # Update mirrorlist for Brazil
+    execute "sudo pacman -Sy --noconfirm reflector" "Installing reflector"
+    execute "sudo reflector --country Brazil --sort rate --save /etc/pacman.d/mirrorlist" "Updating mirrorlist"
+
+    # Update package database
+    execute "sudo pacman -Syuu --noconfirm" "Updating system"
+}
+
+install_aur_helper() {
+    local aur_helper="paru"
+
+    if check_command "$aur_helper"; then
+        log_info "AUR helper '$aur_helper' is already installed"
+        return 0
+    fi
+
+    log_info "Installing AUR helper: $aur_helper"
+
+    # Install base-devel if not present
+    execute "sudo pacman -S --needed --noconfirm git base-devel" "Installing base development tools"
+
+    # Clone and build paru
+    cd "${CONFIG[TEMP_DIR]}"
+    execute "git clone https://aur.archlinux.org/paru.git" "Cloning paru repository"
+    cd paru
+    execute "makepkg -si --noconfirm" "Building and installing paru"
+    cd ..
+    rm -rf paru
+}
+
+setup_locales() {
+    log_info "Setting up system locales..."
+
+    backup_file "/etc/locale.gen"
+
+    # Enable common locales
+    sudo sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+    sudo sed -i 's/^#pt_BR.UTF-8 UTF-8/pt_BR.UTF-8 UTF-8/' /etc/locale.gen
+
+    execute "sudo locale-gen" "Generating locales"
+
+    # Set system locale
+    echo "LANG=en_US.UTF-8" | sudo tee /etc/locale.conf > /dev/null
+}
+
+setup_system_services() {
+    log_info "Setting up system services..."
+
+    # Enable Bluetooth
+    execute "sudo systemctl enable bluetooth.service" "Enabling Bluetooth service"
+    execute "sudo systemctl start bluetooth.service" "Starting Bluetooth service"
+
+    # Enable CUPS (printing)
+    execute "sudo pacman -S --noconfirm cups" "Installing CUPS"
+    execute "sudo systemctl enable cups.service" "Enabling CUPS service"
+    execute "sudo systemctl start cups.service" "Starting CUPS service"
+
+    # Add user to necessary groups
+    execute "sudo usermod -aG lp,scanner "$USER"" "Adding user to printer groups"
+}
+
+# =============================================================================
+# GRAPHICS AND DISPLAY FUNCTIONS
+# =============================================================================
+
+detect_gpu() {
+    log_info "Detecting GPU..."
+
+    if lspci | grep -i nvidia &> /dev/null; then
+        echo "nvidia"
+    elif lspci | grep -i amd &> /dev/null; then
+        echo "amd"
+    elif lspci | grep -i intel &> /dev/null; then
+        echo "intel"
+    else
+        echo "unknown"
+    fi
+}
+
+setup_graphics_drivers() {
+    local gpu_type
+    gpu_type=$(detect_gpu)
+
+    log_info "Setting up graphics drivers for: $gpu_type"
+
+    case "$gpu_type" in
+        "nvidia")
+            execute "sudo pacman -S --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils nvidia-settings vulkan-icd-loader lib32-vulkan-icd-loader" "Installing NVIDIA drivers"
+            ;;
+        "amd")
+            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader" "Installing AMD drivers"
+            ;;
+        "intel")
+            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-icd-loader lib32-vulkan-icd-loader" "Installing Intel drivers"
+            ;;
+        *)
+            log_warn "Unknown GPU type. Installing basic Mesa drivers."
+            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader" "Installing basic graphics drivers"
+            ;;
+    esac
+}
+
+setup_themes() {
+    log_info "Setting up themes and appearance..."
+
+    # Install Adwaita theme and related packages
+    execute "paru -S --noconfirm adw-gtk-theme adwaita-colors-icon-theme morewaita-icon-theme" "Installing Adwaita themes"
+
+    # Install Papirus icons
+    execute "sudo pacman -S --noconfirm papirus-icon-theme" "Installing Papirus icons"
+    execute "paru -S --noconfirm papirus-folders" "Installing Papirus folders"
+    sudo papirus-folders -C yellow --theme Papirus-Dark
+
+    # Copy custom cursor themes
+    if [[ -d "${CONFIG[ASSETS_DIR]}/cursor" ]]; then
+        sudo cp -r "${CONFIG[ASSETS_DIR]}/cursor/"* /usr/share/icons/
+        log_info "Custom cursor themes installed"
+    fi
+
+    # Set GTK theme for Flatpak
+    sudo flatpak override --filesystem="$HOME/.themes"
+    sudo flatpak override --env=GTK_THEME=Adwaita-dark
+}
+
+# =============================================================================
+# DEVELOPMENT TOOLS FUNCTIONS
+# =============================================================================
+
+setup_terminal() {
+    log_info "Setting up terminal and shell customization..."
+
+    # Install Zsh and Oh My Bash
+    execute "sudo pacman -S --noconfirm zsh" "Installing Zsh"
+    execute "paru -S --noconfirm oh-my-bash-git" "Installing Oh My Bash"
+
+    # Install terminal utilities
+    execute "sudo pacman -S --noconfirm bat exa ripgrep fd procs tokei tealdeer" "Installing terminal utilities"
+
+    # Setup Rust tools
+    if ! check_command "cargo"; then
+        execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y" "Installing Rust"
+        source "$HOME/.cargo/env"
+    fi
+
+    # Install additional Rust tools
+    execute "cargo install --locked zoxide" "Installing zoxide"
+}
+
+setup_development_tools() {
+    log_info "Setting up development tools..."
+
+    # Install development packages
+    execute "sudo pacman -S --noconfirm base-devel git github-cli" "Installing base development tools"
+
+    # Install programming languages
+    execute "paru -S --noconfirm nodejs npm yarn" "Installing Node.js and npm"
+    execute "paru -S --noconfirm python python-pip" "Installing Python"
+
+    # Install JDK
+    execute "sudo pacman -S --noconfirm jdk-openjdk" "Installing OpenJDK"
+}
+
+# =============================================================================
+# APPLICATIONS FUNCTIONS
+# =============================================================================
+
+setup_utilities() {
+    log_info "Setting up system utilities..."
+
+    local utils=(
+        "fastfetch" "htop" "neofetch" "btop" "nvtop"
+        "unrar" "unzip" "p7zip" "gzip" "bzip2"
+        "ntfs-3g" "android-tools" "gparted"
+        "tlp" "powertop" "thermald"
+    )
+
+    execute "sudo pacman -S --noconfirm ${utils[*]}" "Installing system utilities"
+}
+
+setup_codecs_and_multimedia() {
+    log_info "Setting up codecs and multimedia support..."
+
+    local codecs=(
+        "ffmpeg" "gst-plugins-ugly" "gst-plugins-good"
+        "gst-plugins-base" "gst-plugins-bad" "gst-libav" "gstreamer"
+        "vlc" "mpv" "smplayer"
+    )
+
+    execute "sudo pacman -S --noconfirm ${codecs[*]}" "Installing multimedia codecs"
+}
+
+setup_flatpak_applications() {
+    log_info "Setting up Flatpak applications..."
+
+    # Install Flatpak if not present
+    if ! check_command "flatpak"; then
+        execute "sudo pacman -S --noconfirm flatpak" "Installing Flatpak"
+        execute "flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo" "Adding Flathub repository"
+    fi
+
+    # Essential applications
+    local apps=(
+        "com.discordapp.Discord"
+        "org.telegram.desktop"
+        "com.github.tchx84.Flatseal"
+        "org.gnome.TextEditor"
+        "org.gnome.Calculator"
+    )
+
+    for app in "${apps[@]}"; do
+        execute "flatpak install flathub -y $app" "Installing $app"
+    done
+}
+
+# =============================================================================
+# GAMING FUNCTIONS
+# =============================================================================
+
+setup_gaming() {
+    log_info "Setting up gaming environment..."
+
+    # Install gaming meta package
+    execute "paru -S --noconfirm arch-gaming-meta" "Installing Arch gaming meta package"
+
+    # Install Wine and Proton
+    execute "paru -S --noconfirm wine-installer proton-ge-custom-bin" "Installing Wine and Proton"
+
+    # Install game utilities
+    execute "paru -S --noconfirm gamemode lib32-gamemode goverlay" "Installing gaming utilities"
+
+    # Install Steam
+    execute "paru -S --noconfirm steam" "Installing Steam"
+}
+
+# =============================================================================
+# VIRTUALIZATION FUNCTIONS
+# =============================================================================
+
+setup_virtualization() {
+    log_info "Setting up virtualization..."
+
+    # Install QEMU and virt-manager
+    execute "sudo pacman -S --noconfirm qemu virt-manager dnsmasq bridge-utils" "Installing virtualization tools"
+
+    # Enable libvirt service
+    execute "sudo systemctl enable libvirtd.service" "Enabling libvirt service"
+    execute "sudo systemctl start libvirtd.service" "Starting libvirt service"
+
+    # Add user to libvirt group
+    execute "sudo usermod -aG libvirt $USER" "Adding user to libvirt group"
+}
+
+# =============================================================================
+# INTERACTIVE MENUS
+# =============================================================================
+
+show_welcome() {
+    dialog --title "Arch Linux Post-Installation Script v${CONFIG[SCRIPT_VERSION]}" \
+           --msgbox "Welcome to the Arch Linux Post-Installation Script!
+
+This script will help you set up your Arch Linux system with modern tools and configurations.
+
+Please select the components you want to install from the main menu.
+
+Note: This script requires internet connection and may take some time to complete." \
+           ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+}
+
+show_main_menu() {
+    local choice
+    choice=$(dialog --title "Main Menu - Arch Linux Post-Installation" \
+                    --menu "Select a category to configure:" \
+                    ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 15 \
+                    1 "System Configuration" \
+                    2 "Graphics & Display" \
+                    3 "Development Tools" \
+                    4 "Applications" \
+                    5 "Gaming" \
+                    6 "Virtualization" \
+                    7 "Complete Setup (All)" \
+                    8 "Exit" \
+                    2>&1 >/dev/tty)
+
+    echo "$choice"
+}
+
+show_system_menu() {
+    local choices
+    choices=$(dialog --title "System Configuration" \
+                     --checklist "Select system components to install:" \
+                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 10 \
+                     "pacman" "Configure Pacman (mirrors, multilib)" on \
+                     "aur" "Install AUR helper (paru)" on \
+                     "locales" "Setup system locales" on \
+                     "services" "Configure system services" on \
+                     2>&1 >/dev/tty)
+
+    echo "$choices"
+}
+
+show_graphics_menu() {
+    local choices
+    choices=$(dialog --title "Graphics & Display" \
+                     --checklist "Select graphics components to install:" \
+                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 8 \
+                     "drivers" "Install graphics drivers" on \
+                     "themes" "Setup themes and icons" on \
+                     2>&1 >/dev/tty)
+
+    echo "$choices"
+}
+
+show_development_menu() {
+    local choices
+    choices=$(dialog --title "Development Tools" \
+                     --checklist "Select development components to install:" \
+                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 8 \
+                     "terminal" "Setup terminal (zsh, tools)" on \
+                     "devtools" "Install development tools" on \
+                     2>&1 >/dev/tty)
+
+    echo "$choices"
+}
+
+show_applications_menu() {
+    local choices
+    choices=$(dialog --title "Applications" \
+                     --checklist "Select applications to install:" \
+                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 10 \
+                     "utilities" "System utilities" on \
+                     "codecs" "Multimedia codecs" on \
+                     "flatpak" "Flatpak applications" on \
+                     2>&1 >/dev/tty)
+
+    echo "$choices"
+}
+
+# =============================================================================
+# MAIN EXECUTION FUNCTIONS
+# =============================================================================
+
+process_system_selection() {
+    local selections="$1"
+
+    for selection in $selections; do
+        case "$selection" in
+            "pacman") setup_pacman ;;
+            "aur") install_aur_helper ;;
+            "locales") setup_locales ;;
+            "services") setup_system_services ;;
+        esac
+    done
+}
+
+process_graphics_selection() {
+    local selections="$1"
+
+    for selection in $selections; do
+        case "$selection" in
+            "drivers") setup_graphics_drivers ;;
+            "themes") setup_themes ;;
+        esac
+    done
+}
+
+process_development_selection() {
+    local selections="$1"
+
+    for selection in $selections; do
+        case "$selection" in
+            "terminal") setup_terminal ;;
+            "devtools") setup_development_tools ;;
+        esac
+    done
+}
+
+process_applications_selection() {
+    local selections="$1"
+
+    for selection in $selections; do
+        case "$selection" in
+            "utilities") setup_utilities ;;
+            "codecs") setup_codecs_and_multimedia ;;
+            "flatpak") setup_flatpak_applications ;;
+        esac
+    done
+}
+
+run_complete_setup() {
+    dialog --title "Complete Setup" \
+           --yesno "This will install ALL components. This may take a long time. Continue?" \
+           ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+
+    if [[ $? -eq 0 ]]; then
+        log_info "Starting complete setup..."
+
+        setup_pacman
+        install_aur_helper
+        setup_locales
+        setup_system_services
+        setup_graphics_drivers
+        setup_themes
+        setup_terminal
+        setup_development_tools
+        setup_utilities
+        setup_codecs_and_multimedia
+        setup_flatpak_applications
+        setup_gaming
+        setup_virtualization
+
+        dialog --title "Complete Setup Finished" \
+               --msgbox "Complete setup has finished! Please reboot your system to apply all changes." \
+               ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+    fi
+}
+
+# =============================================================================
+# MAIN FUNCTION
+# =============================================================================
+
+main() {
+    # Initial checks
+    check_root
+    check_internet
+    check_dependencies
+
+    # Create necessary directories
+    mkdir -p "${CONFIG[TEMP_DIR]}"
+    mkdir -p "${CONFIG[BACKUP_DIR]}"
+
+    # Show welcome message
+    show_welcome
+
+    # Main menu loop
+    while true; do
+        local choice
+        choice=$(show_main_menu)
+
+        case "$choice" in
+            1)  # System Configuration
+                local selections
+                selections=$(show_system_menu)
+                [[ -n "$selections" ]] && process_system_selection "$selections"
+                ;;
+            2)  # Graphics & Display
+                local selections
+                selections=$(show_graphics_menu)
+                [[ -n "$selections" ]] && process_graphics_selection "$selections"
+                ;;
+            3)  # Development Tools
+                local selections
+                selections=$(show_development_menu)
+                [[ -n "$selections" ]] && process_development_selection "$selections"
+                ;;
+            4)  # Applications
+                local selections
+                selections=$(show_applications_menu)
+                [[ -n "$selections" ]] && process_applications_selection "$selections"
+                ;;
+            5)  # Gaming
+                setup_gaming
+                ;;
+            6)  # Virtualization
+                setup_virtualization
+                ;;
+            7)  # Complete Setup
+                run_complete_setup
+                ;;
+            8)  # Exit
+                break
+                ;;
+        esac
+    done
+
+    # Cleanup
+    rm -rf "${CONFIG[TEMP_DIR]}"
+
+    log_info "Post-installation script completed. You may want to reboot your system."
+}
+
+# =============================================================================
+# SCRIPT ENTRY POINT
+# =============================================================================
+
+# Handle command line arguments
+case "${1:-}" in
+    "--help"|"-h")
+        echo "Arch Linux Post-Installation Script v${CONFIG[SCRIPT_VERSION]}"
+        echo ""
+        echo "Usage: $0 [options]"
+        echo ""
+        echo "Options:"
+        echo "  --help, -h    Show this help message"
+        echo "  --version, -v Show version information"
+        echo ""
+        echo "Run without arguments for interactive mode."
+        exit 0
+        ;;
+    "--version"|"-v")
+        echo "Arch Linux Post-Installation Script v${CONFIG[SCRIPT_VERSION]}"
+        exit 0
+        ;;
+    *)
+        main "$@"
+        ;;
+esac
