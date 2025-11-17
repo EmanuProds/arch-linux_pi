@@ -3,91 +3,98 @@
 [![Bash](https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-1793D1?style=for-the-badge&logo=arch-linux&logoColor=white)](https://archlinux.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue.svg?style=for-the-badge)](https://github.com/EmanuProds/arch-linux-pi)
+[![Version](https://img.shields.io/badge/Version-3.1.0-blue.svg?style=for-the-badge)](https://github.com/EmanuProds/arch-linux-pi)
 
 A modern, interactive post-installation automation script for Arch Linux systems with comprehensive setup capabilities. 🚀
 
 ## ✨ Features
 
+- **User Configurable Constants**: Easily modify package lists and settings at the top of the script
 - **Interactive Menus**: User-friendly dialog-based interface for component selection
-- **Modular Design**: Clean, maintainable code with separate functions for each component
-- **Error Handling**: Comprehensive validation and error recovery
 - **Modern Practices**: Uses Bash best practices with proper error handling
 - **Comprehensive Setup**: Covers system configuration, graphics, development tools, applications, gaming, and virtualization
 - **Automatic GPU Detection**: Automatically detects and installs appropriate graphics drivers
 - **Backup System**: Creates backups of configuration files before modification
-- **Logging**: Detailed logging with color-coded output
+- **Logging**: Detailed logging with color-coded output to ~/.archPI/archpi.log
+
+## 🎛️ Customization
+
+The script includes user-configurable constants at the top of the file for easy customization:
+
+```bash
+# System dependencies (required for script operation)
+readonly DEPENDENCIES=(...)
+
+# Package lists by category
+readonly SYSTEM_UTILITIES=(...)
+readonly FLATPAK_BROWSERS=(...)
+readonly GAMING_PACKAGES=(...)
+# ... and many more
+```
+
+**To customize:**
+1. Open `archPI.sh` in your text editor
+2. Modify the constants at the top of the file
+3. Save and run the script as usual
+
+This allows you to add/remove packages, change default settings, and adapt the script to your specific needs without modifying the core logic.
 
 ## 🔧 Components
 
 ### ⚙️ 1. System Configuration *(Priority Setup)*
-- Pacman configuration (multilib, colors, mirrors, Chaotic-AUR repo)
+- Pacman configuration (multilib, colors, ParallelDownloads=15, CleanMethod=KeepCurrent, Chaotic-AUR repo)
+- Reflector mirror optimization (country-based selection with fallbacks)
 - AUR helper installation (paru)
-- System locales setup (en_US, pt_BR)
-- **Snapper BTRFS snapshots** (automatic backups after pacman updates)
+- System locales setup (interactive selection: en_US, pt_BR, etc.)
+- **Snapper BTRFS snapshots** (automatic timeline + pre/post update snapshots)
 - Essential services (Bluetooth, CUPS, printer/scanner support)
-- **CachyOS Kernel** (performance optimized with intelligent boot recovery)
+- **CachyOS Kernel** (performance optimized with emergency fallback)
+- Arch Linux splash logo for boot
 - **Perfect Quiet Boot** (Arch splash + Plymouth spinner + GDM)
-- Secure Boot setup (sbctl)
-
-### 🎨 2. Graphics & Display
-- Automatic GPU detection and driver installation (NVIDIA/AMD/Intel)
-- Theme and icon setup (Adwaita themes, custom colors)
-- systemd-boot splash logo
-- GDM login screen logo
-
-### 💻 3. Development Tools
-- Terminal customization (fish shell, Starship prompt)
-- Development packages (docker, JDK, node.js, python, etc.)
-- Version managers (MISE for Node/Python/Ruby/**Go**, SDKMAN for Java)
-- Modern terminal utilities (bat, exa, ripgrep, fd, fzf, jq, ncdu, tldr)
-- Development tools (Scrcpy, ADB, wirless/android tools)
-- IDEs and editors (VS Codium, Zed, various web dev tools)
-
-### 📱 4. Applications
-- **System utilities**: fastfetch, gparted, deja-dup, btrfs-assistant
-- **Multimedia**: pitivi, sunshine, ffmpeg codecs, gst-plugins suite
-- **Printing**: Complete CUPS setup with drivers and PPDs
-- **Filesystem tools**: ntfs-3g, samba-client, compression tools
-- **Fonts**: Source Code Pro, JetBrains Mono, Noto fonts, Adobe fonts
-- **Flatpak applications (~20 apps)**: Browsers, communication, dev tools, multimedia, gaming, utilities
-
-### 🎮 5. Gaming
-- Gaming meta package
-- Wine and Proton setup
-- Steam installation
-
-### 🖥️ 6. Virtualization
-- GNOME Boxes with QEMU and libvirt
-- Winboat Windows containers
-- Hardware virtualization support
-
-### 🛠️ 7. System Enhancements *(Performance & Automation)*
-- **Zswap Compressed Swap**: Dynamic RAM compression (4-64GB, default 20GB)
-- **Automated system updates** (cron-based weekly with retry logic)
-- DNSMasq local DNS caching
-- EarlyOOM memory management
+- Secure Boot setup (sbctl with key generation and signing)
+- Automatic GPU detection and driver installation (NVIDIA/AMD/Intel/Generic)
+- Hardware acceleration setup for Flatpak applications
+- **Zswap Compressed Swap**: Dynamic RAM compression (configurable size, default 20GB)
+- DNSMasq local DNS caching (1.1.1.1, 8.8.8.8)
+- EarlyOOM memory management (aggressive OOM killing)
 - Microsoft CoreFonts (AUR)
 - Split-lock mitigation disabler
-- **Smart Flatpak HW-Acceleration** (auto-detect: AMD/Intel/NVIDIA)
-- Topgrade with Paru AUR support
-- CachyOS systemd optimizations
+- Topgrade system updater with Paru AUR support
 
-### 🔩 GNOME Menu Organization *(User Experience)*
-- **Automatic menu organization** with 9 custom categorized folders
-- **Smart application detection** (native + Flatpak apps)
-- **Folder categories**: Android, Workflow, Containers, Office, Media Edit, Games, Utilities, Tools, System
-- **Main menu preservation** for essential apps (browsers, Software Center, messaging apps)
-- **Category intelligence** using GNOME Categories mapping
-- **Automatic assignment** based on app metadata
+### 🛠️ 2. Development Tools
+- ZSH shell with Oh-My-Zsh and fish-like plugins (autosuggestions, syntax highlighting)
+- Starship prompt
+- Development packages (Docker, Node.js, Python, JDK, GitHub CLI, etc.)
+- Version managers (MISE for Node/Python/Ruby/Go, SDKMAN for Java)
+- Modern terminal utilities (bat, eza, ripgrep, fd, fzf, jq, ncdu, tldr, man-db)
+- Development tools (Scrcpy, ADB, wireless/Android tools, Tailscale, etc.)
+- IDEs and editors (VS Codium, Zed, Android Studio, Podman Desktop, etc.)
+- QEMU/KVM with GNOME Boxes
+- Hardware virtualization support
+- User group configuration for libvirt access
 
-### 🔧 8. GNOME Extensions *(User Experience)*
-- 15+ preferred extensions for Arch Linux
-- Auto Power Profile, Arch Update Indicator, Bluetooth Battery Meter
-- Caffeine, GSConnect, System Monitor and more
-- Automatic installation via gnome-extensions-cli
+### 📱 3. Applications & Utilities
+- LizardByte repository (for Sunshine game streaming)
+- **System utilities**: fastfetch, gparted, deja-dup, btrfs-assistant, android-tools, etc.
+- **Multimedia**: pitivi, sunshine, ffmpeg codecs, gst-plugins suite
+- **Printing**: Complete CUPS setup with drivers and PPDs
+- **Filesystem tools**: ntfs-3g, samba-client, compression tools (unrar, unzip, p7zip, etc.)
+- **Fonts**: Adobe Source Code Pro, DejaVu, Noto fonts, Fira Code, JetBrains Mono, etc.
+- **Flatpak applications (~25+ apps)**: Browsers, communication, dev tools, multimedia, gaming, utilities
+- Gaming packages (Steam, Wine, Proton, GameMode, MangoHud, Gamescope)
+- Arch gaming meta package integration
+- Performance optimizations for gaming
 
-### ⚡ 9. Complete Setup (All Components)
+### 🎨 4. Themes & Optimization
+- GNOME themes and icons (Adwaita, morewaita-icon-theme)
+- GNOME extensions (15+ extensions for GNOME 49 compatibility)
+- GTK theme configuration
+- Remove unnecessary GNOME packages
+- Hide unused applications from GNOME menu
+- Menu organization with categorized folders
+- System optimization and cleanup
+
+### ⚡ 5. Complete Setup (All Components)
 - **Complete automation** of all components above
 - **Optimized installation order** following script logic
 - **Bulk execution** for clean Arch installations
@@ -115,52 +122,32 @@ For fresh Arch Linux installations, use this one-liner:
 curl -fsSL https://raw.githubusercontent.com/EmanuProds/arch-linux-pi/main/install.sh | bash
 
 # Alternative: Manual git clone + run
-git clone https://github.com/EmanuProds/arch-linux-pi.git && cd arch-linux-pi && chmod +x archPI && ./archPI
+git clone https://github.com/EmanuProds/arch-linux_pi.git && cd arch-linux-pi && chmod +x archPI && ./archPI
 ```
-
-### 🐧 Manual Installation
-
-1. Clone or download the repository
-2. Make the script executable: `chmod +x archPI`
-3. Run the script: `./archPI`
-4. Follow the interactive menus to select components
 
 ## 📁 Project Structure
 
 ```
 .
-├── archPI                 # Main script (interactive installer)
-├── install.sh            # Quick install script (curl | bash compatible)
-└─── assets/               # Configuration assets
-    ├── .bash_aliases     # Custom shell aliases
-    ├── .bashrc          # Bash shell configuration
-    └── logo/            # Logo and branding assets
-        ├── boot/        # Boot splash logos
-        │   └── splash-arch.bmp
-        └── gdm/         # GDM login screen logos
-        └── archlinux-gdm.png
+├── archPI.sh             # Main script (interactive installer)
+├── README.md            # This documentation file
+└── assets/              # Configuration assets (logos, themes)
+    └── logo/           # Logo and branding assets
+        ├── boot/       # Boot splash logos
+        └───└── splash-arch.bmp
 ```
 
 ## 🛡️ Safety Features
 
-- **Backup Creation**: All modified configuration files are backed up automatically
-- **Dependency Checks**: Verifies required tools before execution
-- **Error Recovery**: Graceful handling of installation failures with detailed logging
-- **User Confirmation**: Prompts for confirmation on major operations
-- **Non-Root Execution**: Prevents running as root for user-specific operations
-- **GNOME Extensions Auto-Installation**: 15+ extensions installed automatically
-- **Single sudo Authentication**: Script requests sudo password once and caches it for the entire session
+- **Dependency Checks**: Verifies required tools (dialog, curl, git) before execution
+- **Error Recovery**: Graceful handling of installation failures with detailed logging to ~/.archPI/archpi.log
+- **User Confirmation**: Interactive confirmation dialogs for major operations
+- **Sudo Keep-Alive**: Single sudo authentication cached for entire session
 
 ## ⚠️ Important Notes
 
-- **Backup First**: Always backup important data before running post-installation scripts
-- **Reboot Required**: Some changes (boot, graphics, services) require system reboot
-- **Sudo Authentication**: Script requests password once at start and caches it for entire session
-- **GNOME Extensions**: Preferred extensions are installed automatically during setup
-- **Testing**: Script tested on Arch Linux with GNOME desktop (may work on others)
-- **AUR Packages**: AUR packages installed using paru (AUR helper)
-- **Graphics Drivers**: GPU automatically detected and appropriate drivers installed
+- **Reboot Required**: Some changes (kernel, boot, graphics, services) require system reboot
 - **Virtualization**: Requires hardware virtualization support in BIOS/UEFI
-- **System Updates**: Automated weekly updates with retry logic (configurable)
-- **Secure Boot**: Advanced configuration - backup your system first
-- **Flatpak Apps**: ~20 applications across multiple categories installed automatically
+- **Zswap**: Compressed RAM swap (configurable size, default 20GB)
+- **DNS Caching**: Local DNS caching with DNSMasq for improved performance
+- **Testing**: Script tested on Arch Linux with GNOME desktop (may work on others)
