@@ -12,6 +12,16 @@
 
 set -euo pipefail
 
+# Initialize script directories before any function calls
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+_ARCHPI_DIR="$HOME/.archPI"
+mkdir -p "$_ARCHPI_DIR/temp"
+mkdir -p "$_ARCHPI_DIR/backup"
+
+# Global variables
+SUDO_KEEPALIVE_PID=""
+declare -a to_execute=()
+
 # =============================================================================
 # CONFIGURATION AND CONSTANTS
 # =============================================================================
@@ -19,13 +29,13 @@ set -euo pipefail
 # Global configuration array containing all script settings
 # This associative array centralizes all configurable paths and parameters
 declare -A CONFIG=(
-    ["SCRIPT_VERSION"]="3.0.0"      # Current script version for changelog and compatibility
-    ["TEMP_DIR"]="$HOME/.archpi_temp"   # Temporary directory for build files and downloads
-    ["BACKUP_DIR"]="$HOME/.archpi_backup"  # Directory to store configuration backups
-    ["LOG_FILE"]="$HOME/.archpi.log"   # Main log file for script execution tracking
-    ["ASSETS_DIR"]="assets"      # Directory containing custom assets (logos, themes)
-    ["DIALOG_HEIGHT"]=20         # Default height for dialog menus
-    ["DIALOG_WIDTH"]=70          # Default width for dialog menus
+    ["SCRIPT_VERSION"]="3.1.0"              # Current script version for changelog and compatibility
+    ["TEMP_DIR"]="$_ARCHPI_DIR/temp"        # Temporary directory for build files and downloads
+    ["BACKUP_DIR"]="$_ARCHPI_DIR/backup"    # Directory to store configuration backups
+    ["LOG_FILE"]="$_ARCHPI_DIR/archpi.log"  # Main log file for script execution tracking
+    ["ASSETS_DIR"]="$_SCRIPT_DIR/assets"    # Directory containing custom assets (logos, themes)
+    ["DIALOG_HEIGHT"]=20                    # Default height for dialog menus
+    ["DIALOG_WIDTH"]=70                     # Default width for dialog menus
 )
 
 # Color codes for output
@@ -36,6 +46,254 @@ declare -A COLORS=(
     ["BLUE"]='\033[0;34m'
     ["NC"]='\033[0m' # No Color
 )
+
+# =============================================================================
+# USER CONFIGURABLE CONSTANTS
+# =============================================================================
+
+# System dependencies (required for script operation)
+readonly DEPENDENCIES=(
+    "dialog"
+    "curl"
+    "git"
+)
+
+# Pacman configuration settings
+readonly PACMAN_PARALLEL_DOWNLOADS=15
+readonly PACMAN_CLEAN_METHOD="KeepCurrent"
+
+# System utilities packages
+readonly SYSTEM_UTILITIES=(
+    # System utilities
+    "fastfetch" "gparted" "deja-dup" "ntfs-3g" "android-tools"
+    # Multimedia
+    "pitivi" "sunshine"
+    # Development tools
+    "codium" "docker-buildx" "ptyxis" "btrfs-assistant" "linux-toys"
+    # Printing
+    "system-config-printer-udev" "cups-browsed" "gutenprint-cups" "cups-pdf" "cups-filters" "foomatic-db-engine" "foomatic-db" "foomatic-db-nonfree-ppds"
+    # Terminal tools
+    "bat" "exa" "ripgrep" "fd" "tokei" "tree" "fzf" "jq" "ncdu" "tldr" "man-db"
+    # Filesystem tools
+    "btrfs-progs" "xfsprogs" "dosfstools" "ntfs-3g" "samba-client"
+    # Fonts
+    "adobe-source-code-pro-fonts" "dejavu-fonts" "noto-fonts" "fira-code-fonts" "ttf-jetbrains-mono-nerd" "ttf-adobe-source-code-pro"
+    # Images
+    "librsvg2" "glycin-thumbnailer" "gnome-epub-thumbnailer"
+    # Compression
+    "unrar" "unzip" "p7zip" "gzip" "bzip2" "xz" "lzop" "zip"
+)
+
+# Multimedia codecs packages
+readonly MULTIMEDIA_CODECS=(
+    "ffmpeg" "gst-plugins-ugly" "gst-plugins-good"
+    "gst-plugins-base" "gst-plugins-bad" "gst-libav" "gstreamer"
+)
+
+# Flatpak applications by category
+readonly FLATPAK_BROWSERS=(
+    "app.zen_browser.zen"
+    "com.microsoft.Edge"
+    "io.github.giantpinkrobots.varia"
+)
+
+readonly FLATPAK_COMMUNICATION=(
+    "de.capypara.FieldMonitor"
+    "com.rustdesk.RustDesk"
+    "com.anydesk.Anydesk"
+    "com.freerdp.FreeRDP"
+    "com.rstoya.zapzap"
+    "org.telegram.desktop"
+    "com.discordapp.Discord"
+)
+
+readonly FLATPAK_DEVELOPMENT=(
+    "io.dbeaver.DBeaverCommunity"
+    "me.iepure.devtoolbox"
+    "io.podman_desktop.PodmanDesktop"
+    "sh.loft.devpod"
+    "rest.insomnia.Insomnia"
+    "com.google.AndroidStudio"
+    "re.sonny.Workbench"
+)
+
+readonly FLATPAK_SYSTEM_UTILITIES=(
+    "net.nokyan.Resources"
+    "com.mattjakeman.ExtensionManager"
+    "io.github.flattool.Ignition"
+    "com.github.tchx84.Flatseal"
+    "io.github.flattool.Warehouse"
+    "it.mijorus.gearlever"
+    "com.ranfdev.DistroShelf"
+    "page.codeberg.libre_menu_editor.LibreMenuEditor"
+    "io.github.realmazharhussain.GdmSettings"
+)
+
+readonly FLATPAK_MULTIMEDIA=(
+    "com.obsproject.Studio"
+    "fr.handbrake.ghb"
+    "org.nickvision.tubeconverter"
+    "org.gimp.GIMP"
+    "org.inkscape.Inkscape"
+    "com.github.finefindus.eyedropper"
+    "io.gitlab.adhami3310.Converter"
+    "io.gitlab.theevilskeleton.Upscaler"
+    "org.tenacityaudio.Tenacity"
+)
+
+readonly FLATPAK_GAMING=(
+    "com.steamgriddb.steam-rom-manager"
+    "com.vysp3r.ProtonPlus"
+    "com.github.Matoking.protontricks"
+    "io.github.hedge_dev.hedgemodmanager"
+    "io.github.radiolamp.mangojuice"
+    "org.openrgb.OpenRGB"
+    "org.prismlauncher.PrismLauncher"
+    "io.mrarm.mcpelauncher"
+    "net.veloren.airshipper"
+    "org.vinegarhq.Sober"
+    "net.rpcs3.RPCS3"
+    "org.DolphinEmu.dolphin-emu"
+    "net.pcsx2.PCSX2"
+    "org.ppsspp.PPSSPP"
+    "org.duckstation.DuckStation"
+    "org.libretro.RetroArch"
+)
+
+readonly FLATPAK_ADDITIONAL=(
+    "md.obsidian.Obsidian"
+    "io.github.nozwock.Packet"
+    "io.gitlab.adhami3310.Impression"
+    "garden.jamie.Morphosis"
+    "io.github.diegoivan.pdf_metadata_editor"
+)
+
+# Development tools packages
+readonly DEVELOPMENT_PACKAGES=(
+    "base-devel" "git" "github-cli" "openssl-devel" "distrobox" "docker-ce" "docker-compose-plugin" "scrcpy" "heimdall-frontend" "zed-editor" "figma-linux" "tailscale" "pnpm" "mise" "starship" "jdk-openjdk"
+)
+
+# Gaming packages
+readonly GAMING_PACKAGES=(
+    "arch-gaming-meta" "wine-installer" "proton-ge-custom-bin" "gamemode" "lib32-gamemode" "citron" "input-remapper" "heroic-games-launcher" "shader-boost" "steam"
+)
+
+# Virtualization packages
+readonly VIRTUALIZATION_PACKAGES=(
+    "qemu" "libvirt" "virt-viewer" "spice-gtk" "gnome-boxes" "winboat"
+)
+
+# Theme packages
+readonly THEME_PACKAGES=(
+    "morewaita-icon-theme" "adwaita-colors-icon-theme" "adw-gtk-theme"
+)
+
+# GNOME Extensions (compatible with GNOME 49)
+readonly GNOME_EXTENSIONS=(
+    "adw-gtk3-colorizer@NiffirgkcaJ.github.com"
+    "arch-update@RaphaelRochet"
+    "auto-power-profile@dmy3k.github.io"
+    "Bluetooth-Battery-Meter@maniacx.github.com"
+    "caffeine@patapon.info"
+    "grand-theft-focus@zalckos.github.com"
+    "gsconnect@andyholmes.github.io"
+    "hide-universal-access@akiirui.github.io"
+    "hotedge@jonathan.jdoda.ca"
+    "monitor-brightness-volume@ailin.nemui"
+    "notification-icons@muhammad_ans.github"
+    "power-profile@fthx"
+    "printers@linux-man.org"
+    "rounded-window-corners@fxgn"
+    "system-monitor@gnome-shell-extensions.gcampax.github.com"
+    "window-title-is-back@fthx"
+)
+
+# GPU driver packages by type
+readonly NVIDIA_PACKAGES=(
+    "nvidia-dkms" "nvidia-utils" "lib32-nvidia-utils" "nvidia-settings"
+    "vulkan-icd-loader" "lib32-vulkan-icd-loader"
+)
+
+readonly AMD_PACKAGES=(
+    "mesa" "lib32-mesa" "vulkan-radeon" "lib32-vulkan-radeon"
+    "libva-mesa-driver" "lib32-libva-mesa-driver" "vulkan-icd-loader" "lib32-vulkan-icd-loader"
+)
+
+readonly INTEL_PACKAGES=(
+    "mesa" "lib32-mesa" "vulkan-intel" "lib32-vulkan-intel"
+    "intel-media-driver" "vulkan-icd-loader" "lib32-vulkan-icd-loader"
+)
+
+readonly GENERIC_GPU_PACKAGES=(
+    "mesa" "lib32-mesa" "vulkan-icd-loader" "lib32-vulkan-icd-loader"
+)
+
+# System services packages
+readonly SYSTEM_SERVICES_PACKAGES=(
+    "cups" "bluez" "bluez-utils"
+)
+
+# Zswap configuration
+readonly ZSWAP_SIZE_DEFAULT=20
+
+# DNSMasq configuration
+readonly DNSMASQ_SERVERS=(
+    "1.1.1.1"
+    "8.8.8.8"
+)
+
+# EarlyOOM configuration
+readonly EARLYOOM_ARGS="-m 1 -r 0 -s 100 -n --avoid '(^|/)(init|Xorg|systemd|sshd|dbus|gdm|gnome|gjs|chromium)$'"
+
+# =============================================================================
+# ADVANCED USER CONFIGURABLE CONSTANTS
+# =============================================================================
+#
+# These constants control advanced system settings and can be modified by users
+# who want to customize the behavior of various system components.
+#
+# WARNING: Only modify these if you understand the implications!
+# Incorrect values may affect system performance or stability.
+#
+# Common customizations:
+# - Reduce REFLECTOR_TIMEOUT_* if you have slow internet
+# - Adjust SNAPPER_TIMELINE_* values based on your storage capacity
+# - Change ZSWAP_COMPRESSOR to "lz4" for faster compression (less CPU usage)
+# - Modify ZSWAP_MAX_POOL_PERCENT if you want to limit RAM usage
+#
+
+# Reflector configuration (mirror optimization)
+# These settings control how Pacman mirrors are selected and updated
+readonly REFLECTOR_TIMEOUT_RATE=45         # Timeout for rate sorting method (seconds) - faster but may timeout
+readonly REFLECTOR_TIMEOUT_AGE=30          # Timeout for age sorting method (seconds) - more reliable
+readonly REFLECTOR_MIRRORS_COUNTRY=10      # Number of mirrors to fetch per country
+readonly REFLECTOR_MIRRORS_WORLDWIDE=12    # Number of worldwide mirrors as fallback
+
+# Snapper configuration (BTRFS snapshots)
+# Controls automatic snapshot retention policy for system backups
+readonly SNAPPER_TIMELINE_HOURLY=0         # Hourly snapshots to keep (0 = disabled)
+readonly SNAPPER_TIMELINE_DAILY=2          # Daily snapshots to keep
+readonly SNAPPER_TIMELINE_WEEKLY=14        # Weekly snapshots to keep
+readonly SNAPPER_TIMELINE_MONTHLY=60       # Monthly snapshots to keep
+readonly SNAPPER_TIMELINE_YEARLY=0         # Yearly snapshots to keep (0 = disabled)
+readonly SNAPPER_EMPTY_PRE_POST_AGE=1800   # Minimum age for cleanup (seconds)
+
+# Zswap configuration (compressed RAM swap)
+# Advanced memory compression settings for better performance
+readonly ZSWAP_COMPRESSOR="zstd"           # Compression algorithm: zstd (fast), lz4 (faster), lzo (fastest)
+readonly ZSWAP_ZPOOL="zsmalloc"            # Memory allocator: zsmalloc (recommended), z3fold (alternative)
+readonly ZSWAP_MAX_POOL_PERCENT=100        # Maximum pool percentage of RAM (100 = use all available)
+readonly ZSWAP_PAGE_SIZE=4096              # System page size in bytes (usually 4096)
+
+# Automatic system updates configuration (cron)
+# Controls when and how system updates are performed automatically
+readonly AUTO_UPDATE_HOUR=12               # Hour to run updates (0-23)
+readonly AUTO_UPDATE_MINUTE=0              # Minute to run updates (0-59)
+readonly AUTO_UPDATE_DAYS="0,2,4,6"        # Days of week: 0=Sun, 2=Tue, 4=Thu, 6=Sat
+readonly AUTO_UPDATE_LOG_FILE="/var/log/system-auto-update.log"
+readonly AUTO_UPDATE_LOCK_FILE="/var/run/system-auto-update.lock"
+readonly AUTO_UPDATE_SCRIPT="/usr/local/bin/system-auto-update.sh"
+readonly AUTO_UPDATE_HEALTHCHECK_URL="https://hc-ping.com/YOUR_HEALTHCHECK_ID_HERE"  # Optional health check URL
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -54,16 +312,21 @@ log_error() {
     echo -e "${COLORS[RED]}[ERROR]${COLORS[NC]} $1" | tee -a "${CONFIG[LOG_FILE]}"
 }
 
-# Check if command exists
+# Check if a command exists in the system PATH
+# Arguments:
+#   $1 - Command name to check
+# Returns:
+#   0 if command exists, 1 otherwise
 check_command() {
     if ! command -v "$1" &> /dev/null; then
-        log_error "Command '$1' not found. Please install it first."
         return 1
     fi
     return 0
 }
 
-# Check if running as root
+# Check if script is running as root (should not be for user operations)
+# Returns:
+#   0 if not root (correct), 1 if root (error)
 check_root() {
     if [[ $EUID -eq 0 ]]; then
         log_error "This script should not be run as root for user-specific operations."
@@ -72,25 +335,33 @@ check_root() {
     return 0
 }
 
-# Backup file before modification
+# Create timestamped backup of file before modification
+# Backups are stored in ~/.archPI/backup with timestamp
+# Arguments:
+#   $1 - File path to backup
 backup_file() {
     local file="$1"
     local backup="${CONFIG[BACKUP_DIR]}/$(basename "$file").backup.$(date +%Y%m%d_%H%M%S)"
 
     if [[ -f "$file" ]]; then
         mkdir -p "${CONFIG[BACKUP_DIR]}"
-        cp "$file" "$backup"
+        sudo cp "$file" "$backup"
         log_info "Backed up $file to $backup"
     fi
 }
 
-# Execute command with error handling
+# Execute command with error handling and logging
+# Arguments:
+#   $1 - Command to execute
+#   $2 - Description of operation (optional)
+# Returns:
+#   0 on success, 1 on failure
 execute() {
     local cmd="$1"
     local description="${2:-Executing command}"
 
-    log_info "$description: $cmd"
-    if eval "$cmd"; then
+    log_info "$description..."
+    if eval "$cmd" 2>&1 | tee -a "${CONFIG[LOG_FILE]}"; then
         log_info "✓ $description completed successfully"
         return 0
     else
@@ -99,7 +370,9 @@ execute() {
     fi
 }
 
-# Check internet connectivity
+# Check internet connectivity by pinging reliable DNS servers
+# Returns:
+#   0 if connected, 1 if no connection
 check_internet() {
     if ! ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
         log_error "No internet connection detected. Please check your network."
@@ -108,107 +381,328 @@ check_internet() {
     return 0
 }
 
+# Cleanup sudo keep-alive process
+cleanup_sudo() {
+    if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill -0 "$SUDO_KEEPALIVE_PID" 2>/dev/null; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
+    fi
+}
+
 # =============================================================================
 # DEPENDENCY CHECKS
 # =============================================================================
 
+# Check and install required dependencies for the script
+# Automatically installs missing dependencies from DEPENDENCIES array
+# Exits if dependencies cannot be installed
 check_dependencies() {
-    local deps=("dialog" "curl" "git" "sudo" "gnome-extensions-cli")
     local missing=()
-    local failed_auto_install=()
 
-    # Check which dependencies are missing
-    for dep in "${deps[@]}"; do
+    log_info "Checking required dependencies..."
+
+    # Identify missing dependencies
+    for dep in "${DEPENDENCIES[@]}"; do
         if ! check_command "$dep"; then
             missing+=("$dep")
         fi
     done
 
-    # If no dependencies are missing, return success
+    # Return if all dependencies are present
     if [[ ${#missing[@]} -eq 0 ]]; then
+        log_info "All required dependencies are installed"
         return 0
     fi
 
     log_info "Missing required dependencies: ${missing[*]}"
-    log_info "Attempting automatic installation..."
+    log_info "Installing dependencies automatically..."
 
-    # Try to install missing dependencies automatically
-    for dep in "${missing[@]}"; do
-        log_info "Installing $dep..."
-
-        # Try automatic installation (will fail if sudo password is required)
-        if sudo -n pacman -S --noconfirm "$dep" &>/dev/null; then
-            log_info "✓ Successfully installed $dep"
-        else
-            log_warn "Failed to install $dep automatically (may require password)"
-            failed_auto_install+=("$dep")
-        fi
-    done
-
-    # Check again which dependencies are still missing
-    local still_missing=()
-    for dep in "${missing[@]}"; do
-        if ! check_command "$dep"; then
-            still_missing+=("$dep")
-        fi
-    done
-
-    # If all dependencies are now installed, continue
-    if [[ ${#still_missing[@]} -eq 0 ]]; then
-        log_info "All dependencies successfully installed!"
+    # Attempt to install missing dependencies
+    if sudo pacman -S --noconfirm "${missing[@]}" 2>&1 | tee -a "${CONFIG[LOG_FILE]}"; then
+        log_info "✓ All dependencies successfully installed"
         return 0
+    else
+        log_error "Failed to install dependencies automatically"
+        log_info "Please install them manually: sudo pacman -S ${missing[*]}"
+        exit 1
     fi
-
-    # If some dependencies still missing, show manual installation instructions
-    log_error "Some dependencies could not be installed automatically: ${still_missing[*]}"
-    log_info "Please install them manually with:"
-    log_info "sudo pacman -S ${still_missing[*]}"
-    log_info "Then run the script again."
-    exit 1
 }
 
 # =============================================================================
 # SYSTEM CONFIGURATION FUNCTIONS
 # =============================================================================
 
+# Validate and clean pacman configuration
+# Removes invalid repositories and fixes common configuration issues
+validate_pacman_conf() {
+    log_info "Validating pacman configuration..."
+
+    local needs_cleanup=false
+
+    # Check for invalid custom repositories
+    if grep -q "\[custom\]" /etc/pacman.conf 2>/dev/null; then
+        log_warn "Found invalid [custom] repository"
+        needs_cleanup=true
+    fi
+
+    # Check for non-existent repository paths
+    if grep -q "Server.*file://" /etc/pacman.conf 2>/dev/null; then
+        log_warn "Found file:// repositories that may not exist"
+        needs_cleanup=true
+    fi
+
+    # Check for comment blocks that got uncommented in repository sections
+    if grep -E "^(An example of|tips on creating|details on options)" /etc/pacman.conf 2>/dev/null; then
+        log_warn "Found invalid directives (uncommented comments)"
+        needs_cleanup=true
+    fi
+
+    # Clean up if necessary
+    if [[ "$needs_cleanup" == true ]]; then
+        backup_file "/etc/pacman.conf"
+
+        # Remove invalid custom repository sections
+        sudo sed -i '/^\[custom\]/,/^$/d' /etc/pacman.conf
+
+        # Remove invalid file:// repositories
+        sudo sed -i '/Server.*file:\/\//d' /etc/pacman.conf
+
+        # Remove all uncommented comment lines (more aggressive cleaning)
+        sudo sed -i '/^An example of/d' /etc/pacman.conf
+        sudo sed -i '/^tips on creating/d' /etc/pacman.conf
+        sudo sed -i '/^details on options/d' /etc/pacman.conf
+        sudo sed -i '/^See the pacman/d' /etc/pacman.conf
+        sudo sed -i '/^for more information/d' /etc/pacman.conf
+
+        log_info "Cleaned up invalid repositories from pacman.conf"
+    else
+        log_info "Pacman configuration is valid"
+    fi
+
+    # Remove stale lock file if it exists
+    if [[ -f /var/lib/pacman/db.lck ]]; then
+        log_warn "Found stale pacman lock file. Removing..."
+        sudo rm -f /var/lib/pacman/db.lck
+    fi
+
+    return 0
+}
+
+# Configure Pacman with optimizations and enable multilib repository
+# Enables: Color, VerbosePkgLists, multilib, ParallelDownloads
+# Adds CleanMethod KeepCurrent to keep current package versions
 setup_pacman() {
-    log_info "Setting up Pacman configuration..."
+    log_info "Configuring Pacman with optimizations..."
+
+    # Validate configuration first
+    validate_pacman_conf
+
+    # Backup original configuration
+    backup_file "/etc/pacman.conf"
+
+    # Modify pacman.conf to enable desired options
+    log_info "Modifying pacman.conf to enable optimizations..."
+
+    # Uncomment or add Color
+    if grep -q "^#Color" /etc/pacman.conf; then
+        sudo sed -i 's/^#Color$/Color/' /etc/pacman.conf
+    elif ! grep -q "^Color" /etc/pacman.conf; then
+        sudo sed -i '/^\[options\]/a Color' /etc/pacman.conf
+    fi
+
+    # Uncomment or add CheckSpace
+    if grep -q "^#CheckSpace" /etc/pacman.conf; then
+        sudo sed -i 's/^#CheckSpace$/CheckSpace/' /etc/pacman.conf
+    elif ! grep -q "^CheckSpace" /etc/pacman.conf; then
+        sudo sed -i '/^\[options\]/a CheckSpace' /etc/pacman.conf
+    fi
+
+    # Set ParallelDownloads
+    if grep -q "^ParallelDownloads" /etc/pacman.conf; then
+        sudo sed -i "s/^ParallelDownloads.*/ParallelDownloads = $PACMAN_PARALLEL_DOWNLOADS/" /etc/pacman.conf
+    else
+        sudo sed -i "/^\[options\]/a ParallelDownloads = $PACMAN_PARALLEL_DOWNLOADS" /etc/pacman.conf
+    fi
+
+    # Set CleanMethod
+    if grep -q "^CleanMethod" /etc/pacman.conf; then
+        sudo sed -i "s/^CleanMethod.*/CleanMethod = $PACMAN_CLEAN_METHOD/" /etc/pacman.conf
+    else
+        sudo sed -i "/^\[options\]/a CleanMethod = $PACMAN_CLEAN_METHOD" /etc/pacman.conf
+    fi
+
+    # Enable multilib repository if not present
+    if ! grep -q "\[multilib\]" /etc/pacman.conf; then
+        log_info "Enabling multilib repository..."
+        echo "" | sudo tee -a /etc/pacman.conf > /dev/null
+        echo "[multilib]" | sudo tee -a /etc/pacman.conf > /dev/null
+        echo "Include = /etc/pacman.d/mirrorlist" | sudo tee -a /etc/pacman.conf > /dev/null
+    fi
+
+    log_info "✓ Pacman.conf configured with optimizations"
+
+    # Synchronize package databases
+    log_info "Synchronizing package databases..."
+    if ! sudo pacman -Sy --noconfirm 2>&1 | tee -a "${CONFIG[LOG_FILE]}"; then
+        log_error "Database synchronization failed. Attempting recovery..."
+        sudo rm -rf /var/lib/pacman/sync/*
+        sudo pacman -Sy --noconfirm
+    fi
+}
+
+# Install and configure reflector for optimal mirror selection
+# Automatically selects fastest mirrors from user's region with intelligent fallbacks
+setup_reflector() {
+    log_info "Setting up Reflector for mirror optimization..."
+
+    # Ask user if they want to update mirrors
+    dialog --title "Mirror Update" \
+           --yesno "Do you want to update your mirror list?\n\nThis will select the fastest mirrors from your region.\n\nSkip if you have connection issues." \
+           ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+
+    if [[ $? -ne 0 ]]; then
+        log_info "Skipping mirror update, using default mirrors"
+        return 0
+    fi
+
+    # Install reflector if not present
+    if ! check_command "reflector"; then
+        execute "sudo pacman -S --noconfirm reflector" "Installing Reflector"
+    fi
+
+    # Detect user's country based on timezone or ask
+    local default_country="Brazil"
+    if [[ -f /etc/timezone ]]; then
+        local tz=$(cat /etc/timezone)
+        case "$tz" in
+            America/Sao_Paulo|America/Fortaleza|America/Recife|America/Manaus) default_country="Brazil" ;;
+            America/New_York|America/Los_Angeles|America/Chicago) default_country="United States" ;;
+            Europe/London) default_country="United Kingdom" ;;
+            Europe/Paris) default_country="France" ;;
+            Europe/Berlin) default_country="Germany" ;;
+            Europe/Madrid) default_country="Spain" ;;
+            Asia/Tokyo) default_country="Japan" ;;
+            Asia/Shanghai) default_country="China" ;;
+        esac
+    fi
+
+    # Get user's country for mirror selection
+    local country
+    country=$(dialog --title "Reflector Mirror Selection" \
+                     --inputbox "Enter your country for mirror selection:\n\n(Examples: Brazil, United States, Germany, France)" \
+                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} "$default_country" \
+                     2>&1 >/dev/tty)
+
+    if [[ -z "$country" ]]; then
+        country="$default_country"
+        log_info "Using default country: $country"
+    fi
+
+    # Backup current mirrorlist
+    backup_file "/etc/pacman.d/mirrorlist"
+
+    log_info "Updating mirrorlist for $country..."
+    log_info "This may take 30-60 seconds..."
+
+    # Try Method 1: Country-specific with rate sort (fastest but may timeout)
+    log_info "Attempting to get fastest mirrors from $country..."
+    if timeout $REFLECTOR_TIMEOUT_RATE sudo reflector --country "$country" --latest $REFLECTOR_MIRRORS_COUNTRY --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>&1 | grep -v "TimeoutError" | tee -a "${CONFIG[LOG_FILE]}"; then
+        log_info "✓ Mirrorlist updated successfully with $country mirrors (sorted by speed)"
+        execute "sudo pacman -Syy --noconfirm" "Synchronizing with new mirrors"
+        return 0
+    fi
+
+    # Try Method 2: Country-specific without rate sort (faster, less likely to timeout)
+    log_warn "Rate sorting timed out, trying simpler method for $country..."
+    if timeout $REFLECTOR_TIMEOUT_AGE sudo reflector --country "$country" --latest $REFLECTOR_MIRRORS_COUNTRY --protocol https --sort age --save /etc/pacman.d/mirrorlist 2>&1 | grep -v "TimeoutError" | tee -a "${CONFIG[LOG_FILE]}"; then
+        log_info "✓ Mirrorlist updated with $country mirrors (sorted by update time)"
+        execute "sudo pacman -Syy --noconfirm" "Synchronizing with new mirrors"
+        return 0
+    fi
+
+    # Try Method 3: Worldwide fastest (no country filter)
+    log_warn "Country-specific mirrors failed, trying worldwide fastest mirrors..."
+    if timeout $REFLECTOR_TIMEOUT_AGE sudo reflector --latest $REFLECTOR_MIRRORS_WORLDWIDE --protocol https --sort age --save /etc/pacman.d/mirrorlist 2>&1 | grep -v "TimeoutError" | tee -a "${CONFIG[LOG_FILE]}"; then
+        log_info "✓ Mirrorlist updated with worldwide mirrors"
+        execute "sudo pacman -Syy --noconfirm" "Synchronizing with new mirrors"
+        return 0
+    fi
+
+    # Fallback: Restore original mirrorlist
+    log_error "All reflector methods failed, restoring original mirrorlist"
+    if [[ -f "${CONFIG[BACKUP_DIR]}/mirrorlist.backup."* ]]; then
+        sudo cp "${CONFIG[BACKUP_DIR]}"/mirrorlist.backup.* /etc/pacman.d/mirrorlist 2>/dev/null || true
+        log_info "✓ Original mirrorlist restored - default mirrors will be used"
+    else
+        log_warn "No backup found, keeping current mirrorlist"
+    fi
+}
+
+# Add Chaotic-AUR repository for additional packages
+# Provides access to pre-built AUR packages and CachyOS kernels
+setup_chaotic_aur() {
+    log_info "Setting up Chaotic-AUR repository..."
+
+    # Check if already configured
+    if grep -q "\[chaotic-aur\]" /etc/pacman.conf 2>/dev/null; then
+        log_info "Chaotic-AUR repository already configured"
+        return 0
+    fi
 
     # Backup pacman.conf
     backup_file "/etc/pacman.conf"
 
-    # Enable multilib repository
-    sudo sed -i '/^\[multilib\]$/,/^\[/s/^#//' /etc/pacman.conf
+    # Install Chaotic-AUR keyring and mirrorlist
+    log_info "Installing Chaotic-AUR keyring..."
 
-    # Enable colors and other improvements
-    sudo sed -i 's/^#Color/Color/' /etc/pacman.conf
-    sudo sed -i 's/^#ILoveCandy/ILoveCandy/' /etc/pacman.conf
-    sudo sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
+    # Import primary key
+    execute "sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com" "Importing Chaotic-AUR primary key"
+    execute "sudo pacman-key --lsign-key 3056513887B78AEB" "Locally signing Chaotic-AUR key"
 
-    # Update mirrorlist for Brazil
-    execute "sudo pacman -Sy --noconfirm reflector" "Installing reflector"
-    execute "sudo reflector --country Brazil --sort rate --save /etc/pacman.d/mirrorlist" "Updating mirrorlist"
+    # Install keyring and mirrorlist packages
+    log_info "Installing Chaotic-AUR keyring and mirrorlist packages..."
+    sudo pacman -U --noconfirm \
+        'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' \
+        'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' \
+        2>&1 | tee -a "${CONFIG[LOG_FILE]}"
 
-    # Update package database
-    execute "sudo pacman -Syuu --noconfirm" "Updating system"
+    # Add Chaotic-AUR repository to pacman.conf
+    log_info "Adding Chaotic-AUR repository to pacman.conf..."
+    echo "" | sudo tee -a /etc/pacman.conf > /dev/null
+    echo "[chaotic-aur]" | sudo tee -a /etc/pacman.conf > /dev/null
+    echo "Include = /etc/pacman.d/chaotic-mirrorlist" | sudo tee -a /etc/pacman.conf > /dev/null
 
-    # Add Chaotic repository
-    execute "sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
-sudo pacman-key --lsign-key 3056513887B78AEB && sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
-sudo pacman-key --lsign-key 3056513887B78AEB" "Add primary key and mirror list to Chaotic repository"
-    execute "sudo pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
-sudo pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' && sudo pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
-sudo pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'" "Install Chaotic keyring and Chaotic mirrorlist"
+    # Sync databases
+    execute "sudo pacman -Syy --noconfirm" "Synchronizing Chaotic-AUR repository"
 
-    # Enable Chaotic-AUR repository
-    sudo tee -a /etc/pacman.conf <<EOF
+    log_info "✓ Chaotic-AUR repository configured successfully"
+}
 
-[chaotic-aur]
-Include = /etc/pacman.d/chaotic-mirrorlist
+# Add LizardByte repository for Sunshine game streaming
+setup_lizardbyte_repo() {
+    log_info "Setting up LizardByte repository for Sunshine..."
+
+    # Check if already configured
+    if grep -q "\[lizardbyte\]" /etc/pacman.conf 2>/dev/null; then
+        log_info "LizardByte repository already configured"
+        return 0
+    fi
+
+    # Backup pacman.conf
+    backup_file "/etc/pacman.conf"
+
+    # Add LizardByte repository to pacman.conf
+    log_info "Adding LizardByte repository to pacman.conf..."
+    cat <<'EOF' | sudo tee -a /etc/pacman.conf > /dev/null
+
+[lizardbyte]
+SigLevel = Optional
+Server = https://github.com/LizardByte/pacman-repo/releases/latest/download
 EOF
 
-    # Syncing Chaotic repository
-    sudo pacman -Syu
+    # Sync databases
+    execute "sudo pacman -Syy --noconfirm" "Synchronizing LizardByte repository"
+
+    log_info "✓ LizardByte repository configured successfully"
 }
 
 install_aur_helper() {
@@ -249,132 +743,231 @@ setup_locales() {
 }
 
 setup_system_services() {
-    log_info "Setting up system services..."
+    log_info "Configuring system services..."
 
-    # Install system services dependencies
-    local service_deps=(
-        "cups" "bluez"
-    )
-    execute "sudo pacman -S --noconfirm ${service_deps[*]}" "Installing system service dependencies"
+    # Install service dependencies
+    execute "sudo pacman -S --needed --noconfirm ${SYSTEM_SERVICES_PACKAGES[*]}" "Installing system services"
 
     # Enable Bluetooth
-    execute "sudo systemctl enable bluetooth.service" "Enabling Bluetooth service"
-    execute "sudo systemctl start bluetooth.service" "Starting Bluetooth service"
+    execute "sudo systemctl enable --now bluetooth.service" "Enabling Bluetooth"
 
-    # Enable CUPS (printing)
-    execute "sudo systemctl enable cups.service" "Enabling CUPS service"
-    execute "sudo systemctl start cups.service" "Starting CUPS service"
+    # Enable CUPS printing
+    execute "sudo systemctl enable --now cups.service" "Enabling CUPS"
 
     # Add user to necessary groups
-    execute "sudo usermod -aG lp,scanner "$USER"" "Adding user to printer groups"
+    execute "sudo usermod -aG lp,scanner,storage $USER" "Adding user to groups"
+
+    log_info "✓ System services configured"
 }
 
+# Configure Snapper for automatic system snapshots
+# Creates snapshots before package updates and on timeline
 setup_snapper() {
-    log_info "Setting up Snapper for system snapshots..."
+    log_info "Setting up Snapper for automatic system snapshots..."
 
-    # Install Snapper
-    execute "sudo pacman -S --noconfirm snapper snap-pac" "Installing Snapper and snap-pac"
+    # Check if root filesystem is btrfs
+    if ! findmnt -n -o FSTYPE / | grep -q "btrfs"; then
+        log_error "Root filesystem is not btrfs. Snapper requires btrfs."
+        dialog --title "Snapper Error" \
+               --msgbox "Snapper requires a btrfs root filesystem.\n\nYour root filesystem is not btrfs. Skipping Snapper setup." \
+               ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+        return 1
+    fi
 
-    # Configure Snapper for root filesystem
-    log_info "Configuring Snapper for root filesystem..."
-    sudo umount /.snapshots 2>/dev/null || true
-    sudo rm -rf /.snapshots
-    sudo snapper -c root create-config /
+    # Install Snapper and snap-pac first
+    execute "sudo pacman -S --needed --noconfirm snapper snap-pac" "Installing Snapper and snap-pac"
+
+    # Check if Snapper is already configured
+    if [[ -f "/etc/snapper/configs/root" ]]; then
+        log_info "Snapper is already configured for root filesystem"
+
+        dialog --title "Snapper Already Configured" \
+               --msgbox "Snapper is already configured with existing snapshots.\n\nThe script will update the configuration settings without deleting your snapshots." \
+               ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+
+        log_info "Updating existing Snapper configuration (preserving snapshots)..."
+    else
+        # Create Snapper configuration for root (first time setup)
+        log_info "Creating Snapper configuration for root filesystem..."
+
+        # Handle .snapshots directory safely for first-time setup
+        if [[ -d "/.snapshots" ]]; then
+            # Check if it's mounted
+            if mountpoint -q /.snapshots; then
+                log_info "Unmounting /.snapshots..."
+                sudo umount /.snapshots || log_warn "Could not unmount /.snapshots"
+            fi
+
+            # Only remove if it's not a btrfs subvolume
+            if ! sudo btrfs subvolume show /.snapshots &>/dev/null; then
+                sudo rmdir /.snapshots 2>/dev/null || log_warn "/.snapshots not empty, will be handled by Snapper"
+            fi
+        fi
+
+        sudo snapper -c root create-config /
+    fi
 
     # Configure snapshot retention policy
     backup_file "/etc/snapper/configs/root"
+
     sudo tee "/etc/snapper/configs/root" > /dev/null <<EOF
+# Snapper configuration for root filesystem
 # Subvolume to snapshot
 SUBVOLUME="/"
 
 # Filesystem type
 FSTYPE="btrfs"
 
-# User and group for operations
+# User and group permissions
 ALLOW_USERS=""
 ALLOW_GROUPS=""
 
-# Sync interval
+# Sync ACL
 SYNC_ACL="no"
 
-# Cleanup settings
+# Timeline snapshots configuration
 TIMELINE_CREATE="yes"
 TIMELINE_CLEANUP="yes"
-TIMELINE_LIMIT_HOURLY="5"
-TIMELINE_LIMIT_DAILY="7"
-TIMELINE_LIMIT_WEEKLY="0"
-TIMELINE_LIMIT_MONTHLY="0"
-TIMELINE_LIMIT_YEARLY="0"
 
-# Weekly cleanup (2 versions per day, 14 total for week)
-WEEKLY_CLEANUP_ALGORITHM="number"
-WEEKLY_CLEANUP_NUMBER="14"
+# Snapshot limits
+# Daily: Keep $SNAPPER_TIMELINE_DAILY snapshots per day
+TIMELINE_LIMIT_HOURLY="$SNAPPER_TIMELINE_HOURLY"
+TIMELINE_LIMIT_DAILY="$SNAPPER_TIMELINE_DAILY"
+# Weekly: Keep $SNAPPER_TIMELINE_WEEKLY weekly snapshots
+TIMELINE_LIMIT_WEEKLY="$SNAPPER_TIMELINE_WEEKLY"
+# Monthly: Keep $SNAPPER_TIMELINE_MONTHLY monthly snapshots
+TIMELINE_LIMIT_MONTHLY="$SNAPPER_TIMELINE_MONTHLY"
+TIMELINE_LIMIT_YEARLY="$SNAPPER_TIMELINE_YEARLY"
 
-# Monthly cleanup (keep 12 months back approximately)
-MONTHLY_CLEANUP_ALGORITHM="timeline"
-MONTHLY_CLEANUP_TIMELINE_LIMIT_DAILY="0"
-MONTHLY_CLEANUP_TIMELINE_LIMIT_MONTHLY="12"
+# Empty pre-post pair settings
+EMPTY_PRE_POST_CLEANUP="yes"
+EMPTY_PRE_POST_MIN_AGE="$SNAPPER_EMPTY_PRE_POST_AGE"
 EOF
 
-    # Configure snap-pac for automatic snapshots after pacman transactions
-    backup_file "/etc/snap-pac.ini"
-    cat <<EOF | sudo tee "/etc/snap-pac.ini" > /dev/null
-[snap-pac]
-desc-limit = 75
-snapshot = yes
-cleanup = yes
-EOF
-
-    # Enable timeline snapshots
-    execute "sudo systemctl enable --now snapper-timeline.timer" "Enabling Snapper timeline snapshots"
-
-    # Enable cleanup timer
+    # Enable Snapper systemd timers
+    execute "sudo systemctl enable --now snapper-timeline.timer" "Enabling Snapper timeline timer"
     execute "sudo systemctl enable --now snapper-cleanup.timer" "Enabling Snapper cleanup timer"
 
-    # Create initial snapshot
-    execute "sudo snapper -c root create -d 'Fresh system install'" "Creating initial system snapshot"
-
-    log_info "Snapper setup completed!"
-    log_info "System snapshots will be created automatically after pacman updates."
-    log_info "Timeline: 2 versions/day, 14 versions/week, 12 months backup"
-    log_info "Use 'sudo snapper -c root list' to view snapshots"
-    log_info "Use 'sudo snapper -c root rollback <number>' to rollback"
-}
-
-setup_quiet_boot() {
-    log_info "Setting up perfect quiet boot: Arch splash + spinner theme (no watermark) + GDM..."
-
-    # Install Plymouth with spinner theme
-    execute "sudo pacman -S --noconfirm plymouth plymouth-theme-spinner" "Installing Plymouth with spinner theme"
-
-    # Configure Plymouth for spinner theme without watermark
-    backup_file "/etc/plymouth/plymouthd.conf"
-    sudo sed -i 's/^Theme=.*/Theme=spinner/' /etc/plymouth/plymouthd.conf
-
-    # Remove watermark from spinner theme if it exists
-    local spinner_dir="/usr/share/plymouth/themes/spinner"
-    if [[ -d "$spinner_dir" ]]; then
-        # Remove any watermark files if present
-        sudo find "$spinner_dir" -name "*watermark*" -delete 2>/dev/null || true
-        log_info "Ensured plymouth spinner theme has no watermark"
+    # Create initial snapshot only if this is a new configuration
+    if [[ ! -f "/etc/snapper/configs/root" ]] || [[ $(sudo snapper -c root list 2>/dev/null | wc -l) -le 2 ]]; then
+        execute "sudo snapper -c root create -d 'Initial system snapshot after ArchPI setup'" "Creating initial snapshot"
+    else
+        log_info "Existing snapshots preserved, skipping initial snapshot creation"
     fi
 
-    # Configure systemd initrd for Plymouth
-    execute "sudo systemctl enable plymouth-start.service" "Enabling Plymouth systemd service"
+    # Show current snapshot status
+    local snapshot_count=$(sudo snapper -c root list 2>/dev/null | tail -n +3 | wc -l)
+    log_info "✓ Snapper configured successfully"
+    log_info "Current snapshots: $snapshot_count"
+    log_info "Snapshot policy:"
+    log_info "  - Before each package update (via snap-pac)"
+    log_info "  - Hourly: $SNAPPER_TIMELINE_HOURLY snapshots kept"
+    log_info "  - Daily: $SNAPPER_TIMELINE_DAILY snapshots kept"
+    log_info "  - Weekly: $SNAPPER_TIMELINE_WEEKLY snapshots kept"
+    log_info "  - Monthly: $SNAPPER_TIMELINE_MONTHLY snapshots kept"
+    log_info "  - Yearly: $SNAPPER_TIMELINE_YEARLY snapshots kept"
+}
 
-    # Configure quiet kernel parameters
-    configure_kernel_quiet_params
+# Setup perfect quiet boot with Arch splash, Plymouth spinner, and GDM
+# Removes Plymouth watermark for clean appearance
+setup_quiet_boot() {
+    log_info "Setting up perfect quiet boot experience..."
 
-    # Regenerate initramfs for systemd-boot
-    log_info "Configuring Plymouth integration for systemd-boot..."
-    execute "sudo bootctl install" "Ensuring systemd-boot is properly configured"
-    execute "sudo mkinitcpio --no-squashfs -P" "Regenerating initramfs with Plymouth support"
+    # Detect boot manager
+    local boot_manager
+    if [[ -d "/boot/loader" ]]; then
+        boot_manager="systemd-boot"
+    elif [[ -d "/boot/grub" ]]; then
+        boot_manager="grub"
+    else
+        log_error "No supported boot manager detected"
+        return 1
+    fi
 
-    # Setup Arch Linux splash logo
-    setup_arch_splash_logo
+    # Install Plymouth with spinner theme
+    log_info "Installing Plymouth with spinner theme..."
+    execute "sudo pacman -S --noconfirm plymouth" "Installing Plymouth"
 
-    log_info "✅ Quiet boot configured: Splash → Spinner (no watermark) → GDM"
-    log_info "Next time you reboot, you'll see the perfect quiet boot sequence!"
+    # Configure Plymouth theme (spinner without watermark)
+    backup_file "/etc/plymouth/plymouthd.conf"
+    sudo tee /etc/plymouth/plymouthd.conf > /dev/null <<'EOF'
+[Daemon]
+Theme=spinner
+ShowDelay=0
+DeviceTimeout=8
+EOF
+
+    # Remove watermark from spinner theme if present
+    if [[ -d "/usr/share/plymouth/themes/spinner" ]]; then
+        sudo find /usr/share/plymouth/themes/spinner -name "*watermark*" -delete 2>/dev/null || true
+        log_info "Removed watermark from Plymouth spinner theme"
+    fi
+
+    # Configure kernel parameters for quiet boot
+    log_info "Configuring kernel parameters for quiet boot..."
+
+    if [[ "$boot_manager" == "systemd-boot" ]]; then
+        # Find all boot entries and add quiet splash parameters
+        for entry in /boot/loader/entries/*.conf; do
+            if [[ -f "$entry" ]]; then
+                backup_file "$entry"
+
+                # Add quiet splash if not present
+                if ! grep -q "quiet splash" "$entry"; then
+                    sudo sed -i 's/^options.*/& quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0/' "$entry"
+                    log_info "Added quiet boot parameters to $(basename "$entry")"
+                fi
+            fi
+        done
+
+        sudo bootctl update 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Bootctl update skipped (same version)"
+    elif [[ "$boot_manager" == "grub" ]]; then
+        backup_file "/etc/default/grub"
+
+        # Update GRUB_CMDLINE_LINUX_DEFAULT
+        sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"/' /etc/default/grub
+
+        execute "sudo grub-mkconfig -o /boot/grub/grub.cfg" "Regenerating GRUB configuration"
+    fi
+
+    # Setup Arch splash logo
+    setup_arch_splash
+
+    # Regenerate initramfs with Plymouth hook
+    log_info "Regenerating initramfs with Plymouth support..."
+
+    # Configure mkinitcpio.conf with proper hooks
+    backup_file "/etc/mkinitcpio.conf"
+    # Set HOOKS with plymouth
+    sudo sed -i '/^HOOKS=/c\HOOKS=(base udev plymouth autodetect microcode modconf kms keyboard keymap consolefont block filesystems fsck)' /etc/mkinitcpio.conf
+
+    execute "sudo mkinitcpio -P" "Regenerating initramfs"
+
+    log_info "✓ Quiet boot configured successfully"
+    log_info "Boot sequence: Arch splash → Plymouth spinner (no watermark) → GDM"
+}
+
+# Setup Arch Linux splash logo for boot
+setup_arch_splash() {
+    log_info "Installing Arch Linux splash logo..."
+
+    local splash_file="${CONFIG[ASSETS_DIR]}/logo/boot/splash-arch.bmp"
+
+    if [[ ! -f "$splash_file" ]]; then
+        log_warn "Arch splash logo not found at $splash_file"
+        return 1
+    fi
+
+    # Copy splash logo to systemd-boot location
+    sudo mkdir -p /usr/share/systemd/bootctl
+    execute "sudo cp '$splash_file' /usr/share/systemd/bootctl/splash-arch.bmp" "Installing Arch splash logo"
+
+    # Update systemd-boot if present
+    if [[ -d "/boot/loader" ]]; then
+        sudo bootctl update 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Bootctl update skipped (same version)"
+    fi
+
+    log_info "✓ Arch splash logo installed"
 }
 
 configure_kernel_quiet_params() {
@@ -483,26 +1076,7 @@ setup_secure_boot() {
     log_warn "IMPORTANT: If your system doesn't boot, you need to disable Secure Boot in UEFI firmware or use recovery options."
 }
 
-# =============================================================================
-# SYSTEM ENHANCEMENT FUNCTIONS
-# =============================================================================
 
-setup_cachyos_configuration() {
-    log_info "Setting up CachyOS systemd configuration..."
-
-    # Install CachyOS-related packages
-    execute "sudo pacman -S --noconfirm cachyos-sysctl-manager cachyos-settings-gnome cachyos-system-installer" "Installing CachyOS system packages"
-
-    # Apply CachyOS sysctl settings
-    log_info "Applying CachyOS sysctl optimizations..."
-    execute "sudo sysctl --load /usr/lib/sysctl.d/99-cachyos.conf" "Loading CachyOS sysctl settings"
-
-    # Configure systemd services for better performance
-    execute "sudo systemctl enable cachyos-tweaks" "Enabling CachyOS tweaks service"
-    execute "sudo systemctl start cachyos-tweaks" "Starting CachyOS tweaks service"
-
-    log_info "CachyOS systemd configuration completed!"
-}
 
 setup_dnsmasq() {
     log_info "Setting up DNSMasq for local DNS caching..."
@@ -517,8 +1091,14 @@ setup_dnsmasq() {
 domain-needed
 bogus-priv
 no-resolv
-server=1.1.1.1
-server=8.8.8.8
+EOF
+
+    # Add DNS servers
+    for server in "${DNSMASQ_SERVERS[@]}"; do
+        echo "server=$server" | sudo tee -a "/etc/dnsmasq.conf" > /dev/null
+    done
+
+    sudo tee -a "/etc/dnsmasq.conf" > /dev/null <<EOF
 listen-address=127.0.0.1
 cache-size=10000
 no-negcache
@@ -549,7 +1129,7 @@ setup_earlyoom() {
     backup_file "/etc/default/earlyoom"
     sudo tee "/etc/default/earlyoom" > /dev/null <<EOF
 # EarlyOOM configuration
-EARLYOOM_ARGS="-m 1 -r 0 -s 100 -n --avoid '(^|/)(init|Xorg|systemd|sshd|dbus|gdm|gnome|gjs|chromium)$'"
+EARLYOOM_ARGS="$EARLYOOM_ARGS"
 EOF
 
     # Enable EarlyOOM
@@ -733,8 +1313,8 @@ setup_zswap() {
     # Convert selection to numeric value
     local zswap_size_gb
     if [[ "$selected_size" == "auto" ]]; then
-        zswap_size_gb=20
-        selected_size="20gb"
+        zswap_size_gb=$ZSWAP_SIZE_DEFAULT
+        selected_size="${ZSWAP_SIZE_DEFAULT}gb"
     else
         zswap_size_gb=$(echo "$selected_size" | sed 's/gb$//')
     fi
@@ -751,25 +1331,25 @@ setup_zswap() {
 # Zswap module configuration for compressed RAM swap
 options zswap enabled=1
 options zswap same_filled_pages_enabled=1
-options zswap zpool=zsmalloc
-options zswap compressor=zstd
-options zswap max_pool_percent=100
+options zswap zpool=$ZSWAP_ZPOOL
+options zswap compressor=$ZSWAP_COMPRESSOR
+options zswap max_pool_percent=$ZSWAP_MAX_POOL_PERCENT
 EOF
 
-    log_info "Creating Zswap modprobe configuration with zstd compression..."
+    log_info "Creating Zswap modprobe configuration with $ZSWAP_COMPRESSOR compression..."
 
     # Create sysctl configuration to set runtime parameters
     cat <<EOF | sudo tee "/etc/sysctl.d/99-zswap.conf" >/dev/null
 # Zswap runtime configuration
 # Maximum compressed pool size: ${zswap_size_gb}GB (${zswap_size_bytes} bytes)
-vm.zswap.max_pool_pages = $(($zswap_size_bytes / 4096))
+vm.zswap.max_pool_pages = $(($zswap_size_bytes / $ZSWAP_PAGE_SIZE))
 EOF
 
     # Create udev rule to load Zswap module on boot
     sudo mkdir -p /etc/udev/rules.d
     cat <<EOF | sudo tee "/etc/udev/rules.d/99-zswap.rules" >/dev/null
 # Load zswap module early in boot process
-ACTION=="add", KERNEL=="zswap", RUN+="/sbin/modprobe zswap enabled=1 compressor=zstd zpool=zsmalloc same_filled_pages_enabled=1 max_pool_percent=100"
+ACTION=="add", KERNEL=="zswap", RUN+="/sbin/modprobe zswap enabled=1 compressor=$ZSWAP_COMPRESSOR zpool=$ZSWAP_ZPOOL same_filled_pages_enabled=1 max_pool_percent=$ZSWAP_MAX_POOL_PERCENT"
 EOF
 
     # Apply sysctl settings immediately
@@ -777,7 +1357,7 @@ EOF
 
     # Load Zswap module if not already loaded
     if ! lsmod | grep -q zswap; then
-        execute "sudo modprobe zswap enabled=1 compressor=zstd zpool=zsmalloc same_filled_pages_enabled=1 max_pool_percent=100" "Loading Zswap module"
+        execute "sudo modprobe zswap enabled=1 compressor=$ZSWAP_COMPRESSOR zpool=$ZSWAP_ZPOOL same_filled_pages_enabled=1 max_pool_percent=$ZSWAP_MAX_POOL_PERCENT" "Loading Zswap module"
     fi
 
     # Verify Zswap is active
@@ -794,8 +1374,8 @@ EOF
 
     log_info "✅ Zswap setup completed!"
     log_info "Size: ${zswap_size_gb}GB compressed RAM swap"
-    log_info "Compression: zstd (high performance)"
-    log_info "Pool: zsmalloc (optimized allocator)"
+    log_info "Compression: $ZSWAP_COMPRESSOR (high performance)"
+    log_info "Pool: $ZSWAP_ZPOOL (optimized allocator)"
     log_info "Zswap will activate automatically on next boot"
     log_info "Monitor with: cat /sys/module/zswap/parameters/*"
 
@@ -856,27 +1436,24 @@ EOF
     sudo touch /var/log/system-auto-update.log
     sudo chmod 644 /var/log/system-auto-update.log
 
-    # Add cron job with retry logic (Sunday 12:00, fallback logic is handled by multiple entries)
+    # Add cron job with retry logic (using configurable constants)
     backup_file "/etc/crontab"
 
     # Remove existing entries if any
     sudo sed -i '/system-auto-update/d' /etc/crontab
 
-    # Add new cron entries
+    # Parse days string into array for cron entries
+    IFS=',' read -ra DAYS_ARRAY <<< "$AUTO_UPDATE_DAYS"
+
+    # Add cron entries for each configured day
     cat <<EOF | sudo tee -a /etc/crontab > /dev/null
 
-# System auto update - Runs every Sunday at 12:00
-0 12 * * 0   root    /usr/local/bin/system-auto-update.sh
-
-# Retry on Tuesday 12:00 if Sunday failed
-0 12 * * 2   root    /usr/local/bin/system-auto-update.sh
-
-# Retry on Thursday 12:00 if Tuesday failed
-0 12 * * 4   root    /usr/local/bin/system-auto-update.sh
-
-# Final retry on Saturday 12:00 if Thursday failed
-0 12 * * 6   root    /usr/local/bin/system-auto-update.sh
+# System auto update - Runs on configured days at $AUTO_UPDATE_HOUR:$AUTO_UPDATE_MINUTE
 EOF
+
+    for day in "${DAYS_ARRAY[@]}"; do
+        echo "$AUTO_UPDATE_MINUTE $AUTO_UPDATE_HOUR * * $day   root    $AUTO_UPDATE_SCRIPT" | sudo tee -a /etc/crontab > /dev/null
+    done
 
     # Ensure cron service is enabled and running
     execute "sudo systemctl enable cronie" "Enabling cron service"
@@ -889,7 +1466,7 @@ EOF
 }
 
 # =============================================================================
-# GRAPHICS AND DISPLAY FUNCTIONS
+# SYSTEM CONFIGURATION FUNCTIONS (continued)
 # =============================================================================
 
 detect_gpu() {
@@ -996,22 +1573,24 @@ setup_graphics_drivers() {
 
     case "$hardware_gpu_type" in
         "nvidia")
-            log_info "Installing NVIDIA graphics drivers..."
-            execute "sudo pacman -S --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils nvidia-settings vulkan-icd-loader lib32-vulkan-icd-loader" "Installing NVIDIA drivers"
+            log_info "Installing NVIDIA drivers..."
+            execute "sudo pacman -S --needed --noconfirm ${NVIDIA_PACKAGES[*]}" "Installing NVIDIA drivers"
             ;;
         "amd")
-            log_info "Installing AMD graphics drivers..."
-            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader" "Installing AMD drivers"
+            log_info "Installing AMD drivers..."
+            execute "sudo pacman -S --needed --noconfirm ${AMD_PACKAGES[*]}" "Installing AMD drivers"
             ;;
         "intel")
-            log_info "Installing Intel graphics drivers..."
-            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-icd-loader lib32-vulkan-icd-loader" "Installing Intel drivers"
+            log_info "Installing Intel drivers..."
+            execute "sudo pacman -S --needed --noconfirm ${INTEL_PACKAGES[*]}" "Installing Intel drivers"
             ;;
         *)
-            log_warn "Unknown GPU type detected. Installing basic Mesa drivers."
-            execute "sudo pacman -S --noconfirm mesa lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader" "Installing basic Mesa graphics drivers"
+            log_warn "Unknown GPU, installing generic Mesa drivers"
+            execute "sudo pacman -S --needed --noconfirm ${GENERIC_GPU_PACKAGES[*]}" "Installing Mesa drivers"
             ;;
     esac
+
+    log_info "✓ Graphics drivers installed"
 
     log_info "Graphics driver installation completed. A reboot may be required for changes to take effect."
 }
@@ -1019,15 +1598,14 @@ setup_graphics_drivers() {
 setup_themes() {
     log_info "Setting up themes and appearance..."
 
-    # Install Adwaita theme and related packages
-    execute "paru -S --noconfirm adw-gtk-theme morewaita-icon-theme adwaita-colors-icon-theme" "Installing Custom Adwaita themes and icons"
+    # Install theme packages via pacman (prefer native over AUR when possible)
+    execute "paru -S --needed --noconfirm ${THEME_PACKAGES[*]}" "Installing themes"
 
-    # Install Adw-gtk3 theme for Flatpak
-    execute "sudo flatpak install org.gtk.Gtk3theme.adw-gtk3/x86_64/3.22 org.gtk.Gtk3theme.adw-gtk3-dark" "Installing Adw-gtk3 theme Flatpaks"
+    # Set GTK theme
+    gsettings set org.gnome.desktop.interface gtk-theme 'Adw-gtk3-dark' 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface icon-theme 'Adwaita-blue' 2>/dev/null || true
 
-    # Set Adwaita-colors icon theme for default
-    execute "gsettings set org.gnome.desktop.interface icon-theme 'Adwaita-blue'" "Activating Adwaita-colors icon theme"
-    execute "gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-gtk-theme'" "Activating Adw-gtk3 theme"
+    log_info "✓ Themes configured"
 }
 
 setup_systemd_boot_logo() {
@@ -1052,64 +1630,9 @@ setup_systemd_boot_logo() {
     fi
 }
 
-setup_gdm_logo() {
-    log_info "Setting up GDM login logo..."
-
-    # Find GDM logo image (can be PNG or SVG)
-    local logo_file=""
-    for file in "${CONFIG[ASSETS_DIR]}/logo/gdm/"*; do
-        if [[ -f "$file" && ( "$file" == *.png || "$file" == *.svg ) ]]; then
-            logo_file="$file"
-            break
-        fi
-    done
-
-    if [[ -z "$logo_file" ]]; then
-        log_error "GDM logo file not found in ${CONFIG[ASSETS_DIR]}/logo/gdm/"
-        return 1
-    fi
-
-    # Determine GNOME Shell version and theme location
-    local gdm_theme_dir="/usr/share/gnome-shell/theme"
-    local logo_target="$gdm_theme_dir/logo.png"
-
-    if [[ "$logo_file" == *.svg ]]; then
-        # Convert SVG to PNG if needed (requires imagemagick)
-        execute "sudo convert '$logo_file' '$logo_target'" "Converting and installing SVG logo"
-    else
-        execute "sudo cp '$logo_file' '$logo_target'" "Installing PNG logo"
-    fi
-
-    # Create custom CSS if logo is too large or needs positioning
-    local custom_css="$gdm_theme_dir/custom-logo.css"
-    cat <<EOF | sudo tee "$custom_css" > /dev/null
-/* Custom GDM logo positioning */
-.login-dialog-logo-bin {
-  background-image: url('resource:///org/gnome/shell/theme/logo.png');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  width: 128px;
-  height: 128px;
-}
-
-.login-dialog-logo-bin#logo {
-  background-size: contain;
-}
-EOF
-
-    # Include custom CSS in gdm.css if it exists
-    if [[ -f "$gdm_theme_dir/gdm.css" ]]; then
-        backup_file "$gdm_theme_dir/gdm.css"
-        echo "@import url('custom-logo.css');" | sudo tee -a "$gdm_theme_dir/gdm.css" > /dev/null
-    fi
-
-    log_info "GDM logo updated successfully. Changes will apply on next login."
-}
-
-#==============================================================================
-# GNOME EXTENSIONS SETUP FUNCTIONS
-#==============================================================================
+# =============================================================================
+# THEMES & OPTIMIZATION FUNCTIONS
+# =============================================================================
 
 # Main function to setup GNOME extensions
 # Installs user's preferred extensions adapted for Arch Linux
@@ -1128,24 +1651,7 @@ install_user_gnome_extensions() {
     log_info "Installing user's preferred GNOME extensions..."
 
     # List of extensions based on user's preference
-    local user_extensions=(
-        "adw-gtk3-colorizer@NiffirgkcaJ.github.com"            # ADW-GTK3 Colorizer
-        "auto-power-profile@dmy3k.github.io"                    # Auto Power Profile
-        "arch_update@rahulsharma.com"                           # Arch Update Indicator - AUR notifications
-        "Bluetooth-Battery-Meter@maniacx.github.com"           # Bluetooth Battery Meter
-        "caffeine@patapon.info"                                 # Caffeine
-        "grand-theft-focus@zalckos.github.com"                  # Grand Theft Focus
-        "gsconnect@andyholmes.github.io"                       # GSConnect
-        "hide-universal-access@akiirui.github.io"               # Hide Universal Access
-        "hotedge@jonathan.jdoda.ca"                            # Hot Edge
-        "monitor-brightness-volume@ailin.nemui"                # Monitor Brightness Volume
-        "notification-icons@muhammad_ans.github"               # Notification Icons
-        "power-profile@fthx"                                    # Power Profile
-        "printers@linux-man.org"                                # Printers
-        "rounded-window-corners@fxgn"                           # Rounded Window Corners
-        "system-monitor@paradoxxx.zero.gmail.com"              # System Monitor (Arch-compatible)
-        "window-title-is-back@fthx"                             # Window Title is Back
-    )
+    local user_extensions=("${GNOME_EXTENSIONS[@]}")
 
     local install_count=0
     local failed_count=0
@@ -1165,9 +1671,9 @@ install_user_gnome_extensions() {
     log_info "Note: Some extensions may require GNOME Shell restart (Alt+F2, 'r', Enter)"
 }
 
-#==============================================================================
-# GNOME MENU ORGANIZATION FUNCTIONS
-#==============================================================================
+# =============================================================================
+# THEMES & OPTIMIZATION FUNCTIONS (continued)
+# =============================================================================
 
 # Complete implementation of GNOME applications menu organization
 # Automatically detects installed apps and organizes them into categorized folders
@@ -1478,22 +1984,23 @@ verify_menu_organization() {
 # DEVELOPMENT TOOLS FUNCTIONS
 # =============================================================================
 
+# Setup modern terminal environment with fish shell
+# Installs fish shell and sets it as the default shell for better user experience
 setup_terminal() {
-    log_info "Setting up terminal and shell customization..."
+    log_info "Setting up modern terminal environment with fish shell..."
 
-    # Install fish shell
+    # Install fish shell - a smart and user-friendly command line shell
     execute "sudo pacman -S --noconfirm fish" "Installing fish shell"
-    execute "sudo chsh -s /usr/bin/fish "$USER"" "Setting fish as default shell"
+
+    # Set fish as the default shell for the current user
+    execute "sudo chsh -s /usr/bin/fish \"$USER\"" "Setting fish as default shell"
 }
 
 setup_development_tools() {
     log_info "Setting up development tools..."
 
     # Install development packages
-    local dev_deps=(
-        "base-devel" "git" "github-cli" "openssl-devel" "distrobox" "docker-ce" "docker-compose-plugin" "scrcpy" "heimdall-frontend" "zed-editor" "figma-linux" "tailscale" "pnpm" "mise" "starship" "jdk-openjdk"
-    )
-    execute "sudo pacman -S --noconfirm ${dev_deps[*]}" "Installing development tools"
+    execute "sudo pacman -S --needed --noconfirm ${DEVELOPMENT_PACKAGES[*]}" "Installing development tools"
 
     # Setup MISE (version manager)
     setup_mise
@@ -1643,53 +2150,19 @@ setup_sdkman() {
 }
 
 # =============================================================================
-# APPLICATIONS FUNCTIONS
+# APPLICATIONS & UTILITIES FUNCTIONS
 # =============================================================================
 
 setup_utilities() {
     log_info "Setting up system utilities..."
 
-    local utils=(
-        # System utilities
-        "fastfetch" "gparted" "deja-dup" "ntfs-3g" "android-tools"
-
-        # Multimedia
-        "pitivi" "sunshine"
-
-        # Development tools
-        "codium" "docker-buildx" "ptyxis" "btrfs-assistant" "linux-toys"
-
-        # Printing
-        "system-config-printer-udev" "cups-browsed" "gutenprint-cups" "cups-pdf" "cups-filters" "foomatic-db-engine" "foomatic-db" "foomatic-db-nonfree-ppds"
-
-        # Terminal tools
-        "bat" "exa" "ripgrep" "fd" "tokei" "tree" "fzf" "jq" "ncdu" "tldr" "man-db"
-
-        # Filesystem tools
-        "btrfs-progs" "xfsprogs" "dosfstools" "ntfs-3g" "samba-client"
-
-        # Fonts
-        "adobe-source-code-pro-fonts" "dejavu-fonts" "noto-fonts" "fira-code-fonts" "ttf-jetbrains-mono-nerd" "ttf-adobe-source-code-pro"
-
-        # Images
-        "librsvg2" "glycin-thumbnailer" "gnome-epub-thumbnailer"
-
-        # Compression
-        "unrar" "unzip" "p7zip" "gzip" "bzip2" "xz" "lzop" "zip"
-    )
-
-    execute "sudo pacman -S --noconfirm ${utils[*]}" "Installing system utilities"
+    execute "sudo pacman -S --needed --noconfirm ${SYSTEM_UTILITIES[*]}" "Installing system utilities"
 }
 
 setup_codecs_and_multimedia() {
     log_info "Setting up codecs and multimedia support..."
 
-    local codecs=(
-        "ffmpeg" "gst-plugins-ugly" "gst-plugins-good"
-        "gst-plugins-base" "gst-plugins-bad" "gst-libav" "gstreamer"
-    )
-
-    execute "sudo pacman -S --noconfirm ${codecs[*]}" "Installing multimedia codecs"
+    execute "sudo pacman -S --needed --noconfirm ${MULTIMEDIA_CODECS[*]}" "Installing multimedia codecs"
 }
 
 setup_flatpak_applications() {
@@ -1701,152 +2174,385 @@ setup_flatpak_applications() {
         execute "flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo" "Adding Flathub repository"
     fi
 
-    # Install Flatpak applications by categories
     log_info "Installing browser apps..."
-    local browsers=(
-        "app.zen_browser.zen"          # Zen Browser - Firefox-based browser
-        "com.microsoft.Edge"           # Microsoft Edge - web browser
-        "io.github.giantpinkrobots.varia" # Varia - download manager
-    )
-    for app in "${browsers[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_BROWSERS[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing communication apps..."
-    local communication=(
-        "de.capypara.FieldMonitor"         # Field Monitor - device monitor
-        "com.rustdesk.RustDesk"        # RustDesk - secure remote access
-        "com.anydesk.Anydesk"          # AnyDesk - remote desktop access
-        "com.freerdp.FreeRDP"          # FreeRDP - RDP client
-        "com.rstoya.zapzap"            # ZapZap - WhatsApp client
-        "org.telegram.desktop"         # Telegram Desktop - messenger
-        "com.discordapp.Discord"       # Discord - communication platform
-    )
-    for app in "${communication[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_COMMUNICATION[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing development apps..."
-    local development=(
-        "io.dbeaver.DBeaverCommunity"      # DBeaver - SQL client
-        "me.iepure.devtoolbox"             # Dev Toolbox - developer tools
-        "io.podman_desktop.PodmanDesktop"  # Podman Desktop - Podman interface
-        "sh.loft.devpod"                   # DevPod - remote development environments
-        "rest.insomnia.Insomnia"           # Insomnia - REST API client
-        "com.google.AndroidStudio"         # Android Studio - Android development IDE
-        "re.sonny.Workbench"               # Workbench - GNOME development tool
-    )
-    for app in "${development[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_DEVELOPMENT[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing system utilities..."
-    local utilities=(
-        "net.nokyan.Resources"             # Resources - resource usage monitor
-        "com.mattjakeman.ExtensionManager" # Extension Manager - GNOME extensions manager
-        "io.github.flattool.Ignition"      # Ignition - configuration tool
-        "com.github.tchx84.Flatseal"       # Flatseal - Flatpak permissions
-        "io.github.flattool.Warehouse"     # Warehouse - Flatpak applications manager
-        "it.mijorus.gearlever"             # Gear Lever - AppImage manager
-        "com.ranfdev.DistroShelf"          # Distro Shelf - distribution containers
-        "page.codeberg.libre_menu_editor.LibreMenuEditor" # Libre Menu Editor - menu editor
-        "io.github.realmazharhussain.GdmSettings" # GDM Settings - login configurator
-
-    )
-    for app in "${utilities[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_SYSTEM_UTILITIES[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing multimedia apps..."
-    local multimedia=(
-        "com.obsproject.Studio"             # OBS Studio - streaming and recording
-        "fr.handbrake.ghb"                  # HandBrake - video converter
-        "org.nickvision.tubeconverter"      # Tube Converter - video converter
-        "org.gimp.GIMP"                     # GIMP - image editor
-        "org.inkscape.Inkscape"             # Inkscape - vector editor
-        "com.github.finefindus.eyedropper" # Eyedropper - color picker
-        "io.gitlab.adhami3310.Converter"    # Converter - conversion tool
-        "io.gitlab.theevilskeleton.Upscaler" # Upscaler - image upscaling
-        "org.tenacityaudio.Tenacity"        # Tenacity - audio editor
-    )
-    for app in "${multimedia[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_MULTIMEDIA[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing gaming and emulation apps..."
-    local gaming=(
-        "com.steamgriddb.steam-rom-manager" # Steam ROM Manager - Steam ROM manager
-        "com.vysp3r.ProtonPlus"             # ProtonPlus - Proton manager
-        "com.github.Matoking.protontricks"  # Protontricks - Proton winetricks
-        "io.github.hedge_dev.hedgemodmanager" # Hedge Mod Manager - mod manager
-        "io.github.radiolamp.mangojuice"   # MangoJuice - MangoHud manager
-        "org.openrgb.OpenRGB"               # OpenRGB - RGB lighting controller
-        "org.prismlauncher.PrismLauncher"   # Prism Launcher - Minecraft launcher
-        "io.mrarm.mcpelauncher"             # MCPE Launcher - Minecraft PE launcher
-        "net.veloren.airshipper"            # Airshipper - Veloren launcher
-        "org.vinegarhq.Sober"               # Sober - Roblox launcher
-        "net.rpcs3.RPCS3"                   # RPCS3 - PS3 emulator
-        "org.DolphinEmu.dolphin-emu"        # Dolphin - GameCube/Wii emulator
-        "net.pcsx2.PCSX2"                   # PCSX2 - PS2 emulator
-        "org.ppsspp.PPSSPP"                 # PPSSPP - PSP emulator
-        "org.duckstation.DuckStation"       # DuckStation - PS1 emulator
-        "org.libretro.RetroArch"            # RetroArch - multi-system emulator
-    )
-    for app in "${gaming[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_GAMING[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
 
     log_info "Installing additional utilities..."
-    local additional=(
-        "md.obsidian.Obsidian"             # Obsidian - note editor
-        "io.github.nozwock.Packet"          # Packet - network/bluetooth sharing tool
-        "io.gitlab.adhami3310.Impression"   # Impression - image editor
-        "garden.jamie.Morphosis"            # Morphosis - document converter
-        "io.github.diegoivan.pdf_metadata_editor" # PDF Metadata Editor - PDF metadata editor
-
-    )
-    for app in "${additional[@]}"; do
-        execute "flatpak install flathub -y $app" "Installing $app"
+    for app in "${FLATPAK_ADDITIONAL[@]}"; do
+        flatpak install flathub -y "$app" 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Failed to install $app"
     done
+
+    log_info "✓ Flatpak applications installed"
 }
 
 # =============================================================================
-# GAMING FUNCTIONS
+# APPLICATIONS & UTILITIES FUNCTIONS (continued)
 # =============================================================================
 
 setup_gaming() {
     log_info "Setting up gaming environment..."
 
-    # Install gaming meta package
-    execute "paru -S --noconfirm arch-gaming-meta" "Installing Arch gaming meta package"
+    execute "paru -S --needed --noconfirm ${GAMING_PACKAGES[*]}" "Installing gaming packages"
 
-    # Install Wine and Proton
-    execute "paru -S --noconfirm wine-installer proton-ge-custom-bin" "Installing Wine and Proton"
+    # Enable GameMode
+    if check_command "gamemoded"; then
+        systemctl --user enable gamemoded 2>/dev/null || true
+    fi
 
-    # Install game utilities
-    execute "paru -S --noconfirm gamemode lib32-gamemode citron input-remapper heroic-games-launcher shader-boost" "Installing gaming utilities"
-
-    # Install Steam
-    execute "paru -S --noconfirm steam" "Installing Steam"
+    log_info "✓ Gaming environment configured"
 }
 
 # =============================================================================
-# VIRTUALIZATION FUNCTIONS
+# APPLICATIONS & UTILITIES FUNCTIONS (continued)
 # =============================================================================
 
 setup_virtualization() {
-    log_info "Setting up virtualization with GNOME Boxes..."
+    log_info "Setting up virtualization..."
 
-    # Install GNOME Boxes and dependencies
-    execute "sudo pacman -S --noconfirm qemu libvirt virt-viewer spice-gtk" "Installing GNOME Boxes dependencies"
-    execute "paru -S --noconfirm gnome-boxes winboat" "Installing GNOME Boxes and Winboat"
+    # Install virtualization packages
+    execute "sudo pacman -S --needed --noconfirm ${VIRTUALIZATION_PACKAGES[*]}" "Installing virtualization tools"
 
     # Enable libvirt service
-    execute "sudo systemctl enable libvirtd.service" "Enabling libvirt service"
-    execute "sudo systemctl start libvirtd.service" "Starting libvirt service"
+    execute "sudo systemctl enable --now libvirtd.service" "Enabling libvirt"
 
     # Add user to libvirt group
     execute "sudo usermod -aG libvirt $USER" "Adding user to libvirt group"
+
+    log_info "✓ Virtualization configured"
+}
+
+
+
+setup_dnsmasq() {
+    log_info "Setting up DNSMasq for local DNS caching..."
+
+    # Install DNSMasq
+    execute "sudo pacman -S --noconfirm dnsmasq" "Installing DNSMasq"
+
+    # Configure DNSMasq
+    backup_file "/etc/dnsmasq.conf"
+    sudo tee "/etc/dnsmasq.conf" > /dev/null <<EOF
+# DNSMasq configuration for local caching
+domain-needed
+bogus-priv
+no-resolv
+EOF
+
+    # Add DNS servers
+    for server in "${DNSMASQ_SERVERS[@]}"; do
+        echo "server=$server" | sudo tee -a "/etc/dnsmasq.conf" > /dev/null
+    done
+
+    sudo tee -a "/etc/dnsmasq.conf" > /dev/null <<EOF
+listen-address=127.0.0.1
+cache-size=10000
+no-negcache
+EOF
+
+    # Configure systemd-resolved to use DNSMasq
+    backup_file "/etc/systemd/resolved.conf"
+    sudo sed -i 's/^#DNS=.*/DNS=127.0.0.1/' /etc/systemd/resolved.conf
+    sudo sed -i 's/^#DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+
+    # Enable and start DNSMasq
+    execute "sudo systemctl enable dnsmasq" "Enabling DNSMasq service"
+    execute "sudo systemctl start dnsmasq" "Starting DNSMasq service"
+
+    # Restart systemd-resolved
+    execute "sudo systemctl restart systemd-resolved" "Restarting systemd-resolved"
+
+    log_info "DNSMasq setup completed with local caching!"
+}
+
+setup_earlyoom() {
+    log_info "Setting up EarlyOOM for better OOM handling..."
+
+    # Install EarlyOOM
+    execute "sudo pacman -S --noconfirm earlyoom" "Installing EarlyOOM"
+
+    # Configure EarlyOOM for aggressive OOM killing
+    backup_file "/etc/default/earlyoom"
+    sudo tee "/etc/default/earlyoom" > /dev/null <<EOF
+# EarlyOOM configuration
+EARLYOOM_ARGS="$EARLYOOM_ARGS"
+EOF
+
+    # Enable EarlyOOM
+    execute "sudo systemctl enable earlyoom" "Enabling EarlyOOM service"
+    execute "sudo systemctl start earlyoom" "Starting EarlyOOM service"
+
+    log_info "EarlyOOM setup completed for better memory management!"
+}
+
+setup_topgrade() {
+    log_info "Setting up Topgrade for system updates..."
+
+    # Install Topgrade from AUR
+    execute "paru -S --noconfirm topgrade-bin" "Installing Topgrade from AUR"
+
+    # Create Topgrade configuration for Paru AUR support
+    mkdir -p "$HOME/.config/topgrade"
+    cat <<EOF > "$HOME/.config/topgrade.toml"
+[windows]
+
+[brew]
+
+[linux]
+arch_package_manager = "paru"
+trizen_arguments = "-Syu"
+pikaur_arguments = "-Syu"
+yay_arguments = "-Syu"
+paru_arguments = "-Syu"
+pacman_arguments = "-Syu"
+aura_aur_arguments = "-Syu"
+garuda_update_arguments = "-Syu"
+kaos_arguments = "-Syu"
+enable_aur = true
+
+[containers]
+predefined = []
+EOF
+
+log_info "Topgrade configured with Paru AUR support!"
+log_info "Run 'topgrade' to update all your systems and applications."
+}
+
+setup_hardware_acceleration_flatpak() {
+    log_info "Setting up hardware acceleration for Flatpak applications..."
+
+    # Detect current graphics driver to configure appropriate VA-API driver
+    local detected_driver
+    detected_driver=$(detect_current_graphics_driver)
+
+    # Default to AMD if no driver detected or custom selection
+    local hw_accel_driver="${detected_driver:-amd}"
+
+    # Show menu for driver selection (unless detected AMD, then use default)
+    if [[ "$hw_accel_driver" != "amd" ]]; then
+        hw_accel_driver=$(dialog --title "Hardware Acceleration Driver Selection" \
+                                 --menu "Select the GPU driver to use for Flatpak hardware acceleration:" \
+                                 ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 10 \
+                                 "auto" "Auto-detect from current driver ($detected_driver)" \
+                                 "intel" "Intel VA-API (iHD driver)" \
+                                 "amd" "AMD/Radeon VA-API" \
+                                 "nvidia" "NVIDIA NVENC/NVDEC" \
+                                 2>&1 >/dev/tty)
+
+        if [[ $? -ne 0 ]]; then
+            log_info "Hardware acceleration setup cancelled by user"
+            return 0
+        fi
+
+        # Convert auto to detected driver
+        if [[ "$hw_accel_driver" == "auto" ]]; then
+            hw_accel_driver="$detected_driver"
+        fi
+    fi
+
+    # Install appropriate VA-API packages based on selected driver
+    case "$hw_accel_driver" in
+        "intel")
+            log_info "Installing Intel VA-API packages..."
+            execute "sudo pacman -S --noconfirm libva-utils intel-media-driver vulkan-intel mesa-utils" "Installing Intel VA-API packages"
+            HWACCEL_VAAPI_DRIVER="iHD"
+            ;;
+        "amd")
+            log_info "Installing AMD VA-API packages..."
+            execute "sudo pacman -S --noconfirm libva-utils libva-mesa-driver vulkan-mesa mesa-utils" "Installing AMD VA-API packages"
+            HWACCEL_VAAPI_DRIVER="radeonsi"
+            ;;
+        "nvidia")
+            log_info "Installing NVIDIA video packages..."
+            execute "sudo pacman -S --noconfirm libva-nvidia-driver libva-utils vulkan-nvidia mesa-utils" "Installing NVIDIA VA-API packages"
+            HWACCEL_VAAPI_DRIVER="nvidia"
+            ;;
+        *)
+            log_info "Installing generic VA-API packages..."
+            execute "sudo pacman -S --noconfirm libva-utils mesa-utils" "Installing generic VA-API packages"
+            HWACCEL_VAAPI_DRIVER="auto"
+            ;;
+    esac
+
+    # Configure Flatpak to use host graphics drivers
+    flatpak override --system --device=dri --socket=wayland --share=ipc --talk-name=org.gnome.Mutter.DisplayConfig com.obsproject.Studio
+
+    # Set VA-API environment variables globally based on driver selection
+    cat <<EOF | sudo tee "/etc/environment.d/10-flatpak-hwaccel.conf" >/dev/null
+# Hardware acceleration for Flatpak applications
+LIBVA_DRIVER_NAME=$HWACCEL_VAAPI_DRIVER
+VDPAU_DRIVER=va_gl
+EOF
+
+    # Configure specific applications based on driver
+    case "$hw_accel_driver" in
+        " intel"| "amd"| "nvidia")
+            log_info "Configuring OBS Studio for hardware acceleration..."
+            flatpak override --system --socket=wayland --share=ipc com.obsproject.Studio
+            flatpak override --system --env=LIBVA_DRIVER_NAME=$HWACCEL_VAAPI_DRIVER com.obsproject.Studio
+            ;;
+    esac
+
+    log_info "Hardware acceleration for Flatpak applications configured!"
+    log_info "Selected driver: $hw_accel_driver (VA-API: $HWACCEL_VAAPI_DRIVER)"
+}
+
+setup_cachyos_configuration() {
+    log_info "Setting up CachyOS systemd configuration..."
+
+    # Install CachyOS-related packages
+    execute "sudo pacman -S --noconfirm cachyos-sysctl-manager cachyos-settings-gnome cachyos-system-installer" "Installing CachyOS system packages"
+
+    # Apply CachyOS sysctl settings
+    log_info "Applying CachyOS sysctl optimizations..."
+    execute "sudo sysctl --load /usr/lib/sysctl.d/99-cachyos.conf" "Loading CachyOS sysctl settings"
+
+    # Configure systemd services for better performance
+    execute "sudo systemctl enable cachyos-tweaks" "Enabling CachyOS tweaks service"
+    execute "sudo systemctl start cachyos-tweaks" "Starting CachyOS tweaks service"
+
+    log_info "CachyOS systemd configuration completed!"
+}
+
+setup_microsoft_corefonts() {
+    log_info "Setting up Microsoft CoreFonts..."
+
+    # Install ttf-ms-fonts from AUR
+    execute "paru -S --noconfirm ttf-ms-fonts" "Installing Microsoft Core Fonts from AUR"
+
+    # Update font cache
+    execute "fc-cache -fv" "Updating font cache"
+
+    log_info "Microsoft CoreFonts installed and cache updated!"
+}
+
+setup_split_lock_mitigation() {
+    log_info "Setting up split-lock mitigation disabler..."
+
+    # Create systemd sysctl configuration for split-lock mitigation
+    backup_file "/etc/sysctl.d/99-split-lock-mitigation.conf"
+    cat <<EOF | sudo tee "/etc/sysctl.d/99-split-lock-mitigation.conf" > /dev/null
+# Disable split-lock mitigation for performance
+# Warning: This may reduce system security on vulnerable CPUs
+kernel.split_lock_mitigate=0
+EOF
+
+    # Apply the setting immediately
+    execute "sudo sysctl --load /etc/sysctl.d/99-split-lock-mitigation.conf" "Applying split-lock mitigation settings"
+
+    log_info "Split-lock mitigation disabled for better performance!"
+    log_warn "Note: This setting reduces security on vulnerable CPUs. Use with caution."
+}
+
+setup_crontab_system_updates() {
+    log_info "Setting up automatic system updates via cron..."
+
+    # Check if topgrade is available
+    if ! check_command "topgrade"; then
+        log_error "Topgrade not found. Install it first through System Enhancements menu."
+        return 1
+    fi
+
+    # Create cron script for updates with retry logic
+    cat <<EOF | sudo tee /usr/local/bin/system-auto-update.sh > /dev/null
+#!/bin/bash
+#
+# System Auto Update Script
+# Runs topgrade with retry logic for failed updates
+#
+# Scheduled: Sunday 12:00, fallback Tuesday 12:00, Thursday 12:00, Saturday 12:00
+
+LOG_FILE="/var/log/system-auto-update.log"
+LOCK_FILE="/var/run/system-auto-update.lock"
+
+# Prevent concurrent runs
+if [[ -f "\$LOCK_FILE" ]]; then
+    echo "\$(date): Another update process is running. Exiting..." >> "\$LOG_FILE"
+    exit 1
+fi
+
+touch "\$LOCK_FILE"
+trap 'rm -f "\$LOCK_FILE"' EXIT
+
+echo "==========================================" >> "\$LOG_FILE"
+echo "System Auto Update Started: \$(date)" >> "\$LOG_FILE"
+echo "==========================================" >> "\$LOG_FILE"
+
+# Run topgrade with error handling
+if topgrade --yes --cleanup >> "\$LOG_FILE" 2>&1; then
+    echo "Update completed successfully: \$(date)" >> "\$LOG_FILE"
+    curl -fsS --retry 3 https://hc-ping.com/YOUR_HEALTHCHECK_ID_HERE >/dev/null 2>&1 || true
+else
+    echo "Update failed: \$(date)" >> "\$LOG_FILE"
+    exit 1
+fi
+
+echo "==========================================" >> "\$LOG_FILE"
+EOF
+
+    # Make script executable
+    execute "sudo chmod +x /usr/local/bin/system-auto-update.sh" "Making update script executable"
+
+    # Create log file
+    sudo touch /var/log/system-auto-update.log
+    sudo chmod 644 /var/log/system-auto-update.log
+
+    # Add cron job with retry logic (Sunday 12:00, fallback logic is handled by multiple entries)
+    backup_file "/etc/crontab"
+
+    # Remove existing entries if any
+    sudo sed -i '/system-auto-update/d' /etc/crontab
+
+    # Add new cron entries
+    cat <<EOF | sudo tee -a /etc/crontab > /dev/null
+
+# System auto update - Runs every Sunday at 12:00
+0 12 * * 0   root    /usr/local/bin/system-auto-update.sh
+
+# Retry on Tuesday 12:00 if Sunday failed
+0 12 * * 2   root    /usr/local/bin/system-auto-update.sh
+
+# Retry on Thursday 12:00 if Thursday failed
+0 12 * * 4   root    /usr/local/bin/system-auto-update.sh
+
+# Final retry on Saturday 12:00 if Thursday failed
+0 12 * * 6   root    /usr/local/bin/system-auto-update.sh
+EOF
+
+    # Ensure cron service is enabled and running
+    execute "sudo systemctl enable cronie" "Enabling cron service"
+    execute "sudo systemctl start cronie" "Starting cron service"
+
+    log_info "Automatic system updates configured!"
+    log_info "Schedule: Sunday → Tuesday → Thursday → Saturday at 12:00"
+    log_info "Logs available at: /var/log/system-auto-update.log"
+    log_info "To monitor healthchecks, add your HC ping URL to the script"
 }
 
 # =============================================================================
@@ -1855,353 +2561,245 @@ setup_virtualization() {
 
 show_welcome() {
     dialog --title "ArchPI v${CONFIG[SCRIPT_VERSION]}" \
-           --msgbox "Welcome to the Arch Linux Post-Installation Script!
-
-This script will help you set up your Arch Linux system with modern tools and configurations.
-
-Please select the components you want to install from the main menu.
-
-Note: This script requires internet connection and may take some time to complete." \
+           --msgbox "Welcome to ArchPI - Arch Linux Post-Installation Script!\n\nThis script will help you set up your system with:\n- Optimized Pacman configuration\n- CachyOS kernels\n- Graphics drivers\n- Development tools\n- Applications and more\n\nSelect components from the main menu." \
            ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
 }
 
 show_main_menu() {
-    # Display main interactive menu for component selection
-    # Menu numbers are sequential for better UX and easier navigation
     local choice
-    choice=$(dialog --title "Main Menu - Arch Linux Post-Installation" \
-                    --menu "Select a category to configure:" \
-                    ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 20 \
+    choice=$(dialog --title "ArchPI Main Menu" \
+                    --menu "Select a category:" \
+                    ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 15 \
                     1 "System Configuration" \
-                    2 "Graphics & Display" \
-                    3 "Development Tools" \
-                    4 "Applications" \
-                    5 "Gaming" \
-                    6 "Virtualization" \
-                    7 "System Enhancements" \
-                    8 "GNOME Menu Organization" \
-                    9 "GNOME Extensions" \
-                    10 "Complete Setup (All)" \
-                    11 "Exit" \
+                    2 "Graphics & Drivers" \
+                    3 "Shell & Terminal" \
+                    4 "Applications & Utilities" \
+                    5 "Development Tools" \
+                    6 "Gaming" \
+                    7 "Multimedia & Codecs" \
+                    8 "System Services" \
+                    9 "Boot Configuration" \
+                    10 "Themes & Appearance" \
+                    11 "System Enhancements" \
+                    12 "Cleanup & Optimization" \
+                    13 "Complete Setup (All)" \
+                    14 "Exit" \
                     2>&1 >/dev/tty)
-
     echo "$choice"
 }
 
-show_system_menu() {
-    local choices
-    choices=$(dialog --title "System Configuration" \
-                     --checklist "Select system components to install:" \
-                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 13 \
-                     "pacman" "Configure Pacman (mirrors, multilib)" on \
-                     "aur" "Install AUR helper (paru)" on \
-                     "locales" "Setup system locales" on \
-                     "kernel" "Install CachyOS kernel (performance optimized)" off \
-                     "snapper" "Setup Snapper for system snapshots" off \
-                     "services" "Configure system services" on \
-                     "plymouth" "Setup Perfect Quiet Boot (Arch splash + spinner + GDM)" off \
-                     "secureboot" "Setup Secure Boot (sbctl)" off \
-                     2>&1 >/dev/tty)
-
-    echo "$choices"
+ask_confirmation() {
+    local description="$1"
+    local function_name="$2"
+    dialog --title "Confirmation" \
+           --yesno "$description\n\nExecute $function_name?" \
+           ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+    return $?
 }
 
-show_graphics_menu() {
-    local choices
-    choices=$(dialog --title "Graphics & Display" \
-                     --checklist "Select graphics components to install:" \
-                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 9 \
-                     "drivers" "Install graphics drivers" on \
-                     "themes" "Setup themes and icons" on \
-                     "splash" "Setup systemd-boot splash logo" off \
-                     "gdm" "Setup GDM login logo" off \
-                     2>&1 >/dev/tty)
-
-    echo "$choices"
+collect_system_config() {
+    if ask_confirmation "Configure Pacman with optimizations: Color, VerbosePkgLists, ParallelDownloads=15, CleanMethod=KeepCurrent, enable multilib." "setup_pacman"; then
+        to_execute+=("setup_pacman")
+    fi
+    if ask_confirmation "Setup Reflector for fastest mirrors based on country selection." "setup_reflector"; then
+        to_execute+=("setup_reflector")
+    fi
+    if ask_confirmation "Add Chaotic-AUR repository for additional packages." "setup_chaotic_aur"; then
+        to_execute+=("setup_chaotic_aur")
+    fi
+    if ask_confirmation "Install AUR helper (paru)." "install_aur_helper"; then
+        to_execute+=("install_aur_helper")
+    fi
+    if ask_confirmation "Setup system locales interactively." "setup_locales"; then
+        to_execute+=("setup_locales")
+    fi
+    if ask_confirmation "Setup Snapper BTRFS snapshots." "setup_snapper"; then
+        to_execute+=("setup_snapper")
+    fi
 }
 
-show_development_menu() {
-    local choices
-    choices=$(dialog --title "Development Tools" \
-                     --checklist "Select development components to install:" \
-                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 8 \
-                     "terminal" "Setup terminal (fish, tools)" on \
-                     "devtools" "Install development tools" on \
-                     2>&1 >/dev/tty)
-
-    echo "$choices"
+collect_graphics() {
+    if ask_confirmation "Detect and install appropriate graphics drivers (NVIDIA/AMD/Intel)." "setup_graphics_drivers"; then
+        to_execute+=("setup_graphics_drivers")
+    fi
 }
 
-show_applications_menu() {
-    local choices
-    choices=$(dialog --title "Applications" \
-                     --checklist "Select applications to install:" \
-                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 10 \
-                     "utilities" "System utilities" on \
-                     "codecs" "Multimedia codecs" on \
-                     "flatpak" "Flatpak applications" on \
-                     2>&1 >/dev/tty)
-
-    echo "$choices"
+collect_shell_terminal() {
+    if ask_confirmation "Setup Fish shell with Starship prompt and development tools." "setup_terminal"; then
+        to_execute+=("setup_terminal")
+    fi
+    if ask_confirmation "Install and configure GNOME Console as default terminal." "setup_terminal"; then
+        to_execute+=("setup_terminal")
+    fi
 }
 
-show_system_enhancements_menu() {
-    local choices
-    choices=$(dialog --title "System Enhancements" \
-                     --checklist "Select system enhancements to install:" \
-                     ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]} 17 \
-                     "zswap" "Zswap compressed swap (default: 20GB)" on \
-                     "cachyos" "CachyOS systemd configuration" off \
-                     "dnsmasq" "DNSMasq for local DNS caching" off \
-                     "earlyoom" "EarlyOOM for better OOM handling" off \
-                     "msfonts" "Microsoft CoreFonts" off \
-                     "splitlock" "Split-lock mitigation disabler" off \
-                     "flatpak-hwaccel" "Hardware acceleration for Flatpak" off \
-                     "topgrade" "Topgrade with Paru AUR support" off \
-                     "cron" "Automated system updates (Weekly + retries)" off \
-                     2>&1 >/dev/tty)
-
-    echo "$choices"
+collect_applications() {
+    if ask_confirmation "Add LizardByte repository." "setup_lizardbyte_repo"; then
+        to_execute+=("setup_lizardbyte_repo")
+    fi
+    if ask_confirmation "Install system utilities (fastfetch, gparted, etc.)." "setup_utilities"; then
+        to_execute+=("setup_utilities")
+    fi
+    if ask_confirmation "Install Flatpak applications (~20 apps across categories)." "setup_flatpak_applications"; then
+        to_execute+=("setup_flatpak_applications")
+    fi
 }
+
+collect_development() {
+    if ask_confirmation "Install development tools (Docker, Node.js, Python, etc.)." "setup_development_tools"; then
+        to_execute+=("setup_development_tools")
+    fi
+}
+
+collect_gaming() {
+    if ask_confirmation "Install gaming packages and Steam." "setup_gaming"; then
+        to_execute+=("setup_gaming")
+    fi
+}
+
+collect_multimedia() {
+    if ask_confirmation "Install multimedia codecs and applications." "setup_codecs_and_multimedia"; then
+        to_execute+=("setup_codecs_and_multimedia")
+    fi
+}
+
+collect_services() {
+    if ask_confirmation "Setup system services (Bluetooth, CUPS, etc.)." "setup_system_services"; then
+        to_execute+=("setup_system_services")
+    fi
+}
+
+collect_boot() {
+    if ask_confirmation "Install CachyOS kernels with fallback." "setup_cachyos_kernel"; then
+        to_execute+=("setup_cachyos_kernel")
+    fi
+    if ask_confirmation "Setup quiet boot with Plymouth splash." "setup_quiet_boot"; then
+        to_execute+=("setup_quiet_boot")
+    fi
+    if ask_confirmation "Setup Secure Boot with sbctl." "setup_secure_boot"; then
+        to_execute+=("setup_secure_boot")
+    fi
+}
+
+collect_themes() {
+    if ask_confirmation "Setup GNOME themes, icons, and organize menu folders." "setup_themes setup_gnome_menu_folders"; then
+        to_execute+=("setup_themes")
+        to_execute+=("setup_gnome_menu_folders")
+    fi
+}
+
+collect_enhancements() {
+    if ask_confirmation "Setup Zswap compressed swap." "setup_zswap"; then
+        to_execute+=("setup_zswap")
+    fi
+    if ask_confirmation "Setup DNSMasq for DNS caching." "setup_dnsmasq"; then
+        to_execute+=("setup_dnsmasq")
+    fi
+    if ask_confirmation "Setup EarlyOOM memory management." "setup_earlyoom"; then
+        to_execute+=("setup_earlyoom")
+    fi
+    if ask_confirmation "Setup Topgrade system updater." "setup_topgrade"; then
+        to_execute+=("setup_topgrade")
+    fi
+    if ask_confirmation "Setup Flatpak hardware acceleration." "setup_hardware_acceleration_flatpak"; then
+        to_execute+=("setup_hardware_acceleration_flatpak")
+    fi
+    if ask_confirmation "Setup GNOME extensions." "setup_gnome_extensions"; then
+        to_execute+=("setup_gnome_extensions")
+    fi
+    if ask_confirmation "Setup virtualization (QEMU/KVM)." "setup_virtualization"; then
+        to_execute+=("setup_virtualization")
+    fi
+}
+
+collect_cleanup() {
+    if ask_confirmation "Remove unnecessary packages and hide GNOME apps." "cleanup"; then
+        to_execute+=("remove_unnecessary_packages")
+        to_execute+=("hide_gnome_menu_apps")
+    fi
+}
+
+collect_all() {
+    # Add all functions
+    to_execute=("setup_pacman" "setup_reflector" "setup_chaotic_aur" "install_aur_helper" "setup_locales" "setup_snapper" "setup_graphics_drivers" "setup_terminal" "setup_lizardbyte_repo" "setup_utilities" "setup_flatpak_applications" "setup_development_tools" "setup_gaming" "setup_codecs_and_multimedia" "setup_system_services" "setup_cachyos_kernel" "setup_quiet_boot" "setup_secure_boot" "setup_themes" "setup_gnome_menu_folders" "setup_zswap" "setup_dnsmasq" "setup_earlyoom" "setup_topgrade" "setup_hardware_acceleration_flatpak" "setup_gnome_extensions" "setup_virtualization" "remove_unnecessary_packages" "hide_gnome_menu_apps")
+}
+
+
+
+
 
 # =============================================================================
-# MAJOR EXECUTION FUNCTIONS
+# SYSTEM CONFIGURATION FUNCTIONS (continued)
 # =============================================================================
 
-# Function to setup CachyOS kernel with intelligent fallback
+# Install CachyOS kernels (standard and LTS) with automatic fallback
+# Removes generic Arch kernel, keeps Arch LTS as emergency fallback
 setup_cachyos_kernel() {
-    log_info "Setting up CachyOS kernels with intelligent boot fallback..."
+    log_info "Installing CachyOS kernels for improved performance..."
 
-    # Check if Chaotic repository is available (required for CachyOS kernels)
+    # Check if Chaotic-AUR is configured
     if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
-        log_error "Chaotic-AUR repository is required for CachyOS kernels."
-        log_info "Please enable Chaotic repository first through Pacman configuration."
+        log_error "Chaotic-AUR repository required for CachyOS kernels"
+        dialog --title "CachyOS Kernel Error" \
+               --msgbox "CachyOS kernels require the Chaotic-AUR repository.\n\nPlease enable Chaotic-AUR first." \
+               ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
         return 1
     fi
 
-    # Install CachyOS kernels and headers
-    log_info "Installing CachyOS kernels (performance optimized)..."
-    execute "sudo pacman -S --noconfirm cachyos-linux cachyos-linux-headers cachyos-linux-lts cachyos-linux-lts-headers" "Installing CachyOS kernels and headers"
-
-    # Verify systemd-boot is present
-    if [[ ! -d "/boot/loader" ]]; then
-        log_error "systemd-boot not detected! Kernel management requires systemd-boot."
+    # Detect boot manager
+    local boot_manager
+    if [[ -d "/boot/loader" ]]; then
+        boot_manager="systemd-boot"
+    elif [[ -d "/boot/grub" ]]; then
+        boot_manager="grub"
+    else
+        log_error "No supported boot manager detected (systemd-boot or GRUB)"
         return 1
     fi
 
-    # Setup CachyOS as default kernel
-    setup_cachyos_default_kernel
+    log_info "Detected boot manager: $boot_manager"
 
-    # Create boot failure recovery system
-    setup_boot_failure_recovery_system
+    # Install CachyOS kernels
+    log_info "Installing CachyOS kernels (standard and LTS)..."
+    execute "sudo pacman -S --noconfirm linux-cachyos linux-cachyos-headers linux-cachyos-lts linux-cachyos-lts-headers" "Installing CachyOS kernels"
 
-    log_info "✅ CachyOS kernel setup completed!"
-    log_info "Default kernel: cachyos-linux (performance optimized)"
-    log_info "Fallback kernel: cachyos-linux-lts (stable emergency)"
-    log_info "Recovery system: 3 failed boots → Recovery menu with Snapper rollback"
-    log_info "To trigger recovery manually: Hold Space during boot."
-}
+    # Keep Arch LTS kernel as fallback, remove generic kernel
+    log_info "Removing generic Arch kernel, keeping Arch LTS as emergency fallback..."
+    if pacman -Qi linux &>/dev/null; then
+        execute "sudo pacman -R --noconfirm linux" "Removing generic Arch kernel"
+    fi
 
-setup_cachyos_default_kernel() {
-    log_info "Setting cachyos-linux as default kernel..."
+    # Ensure Arch LTS is installed
+    if ! pacman -Qi linux-lts &>/dev/null; then
+        execute "sudo pacman -S --noconfirm linux-lts linux-lts-headers" "Installing Arch LTS kernel as fallback"
+    fi
 
-    # Find CachyOS boot entry
-    local cachyos_entry=""
-    for entry in /boot/loader/entries/*.conf; do
-        if [[ -f "$entry" && "$(grep -c "cachyos-linux" "$entry" 2>/dev/null || echo "0")" -gt "0" ]]; then
-            if ! grep -q "lts" "$entry"; then
-                cachyos_entry="$entry"
-                break
-            fi
+    # Update boot manager configuration
+    if [[ "$boot_manager" == "systemd-boot" ]]; then
+        log_info "Configuring systemd-boot..."
+        sudo bootctl update 2>&1 | tee -a "${CONFIG[LOG_FILE]}" || log_warn "Bootctl update skipped (same version)"
+
+        # Set CachyOS as default if entry exists
+        if [[ -f "/boot/loader/entries/arch-cachyos.conf" ]] || [[ -f "/boot/loader/entries/*cachyos*.conf" ]]; then
+            backup_file "/boot/loader/loader.conf"
+            sudo sed -i 's/^default.*/default arch-cachyos.conf/' /boot/loader/loader.conf 2>/dev/null || true
         fi
-    done
-
-    # If no CachyOS entry found, create one or modify existing
-    if [[ -z "$cachyos_entry" ]]; then
-        log_error "No CachyOS boot entry found. systemd-boot configuration may be required."
-        return 1
+    elif [[ "$boot_manager" == "grub" ]]; then
+        log_info "Updating GRUB configuration..."
+        execute "sudo grub-mkconfig -o /boot/grub/grub.cfg" "Regenerating GRUB configuration"
     fi
 
-    # Set as default in loader.conf
-    backup_file "/boot/loader/loader.conf"
-    sudo sed -i 's/^default.*/default '"$(basename "$cachyos_entry" .conf)"'/' /boot/loader/loader.conf
-
-    # Update boot loader
-    execute "sudo bootctl update" "Updating systemd-boot with new default"
-
-    log_info "CachyOS kernel set as default successfully"
+    log_info "✓ CachyOS kernels installed successfully"
+    log_info "Kernel hierarchy: CachyOS (default) → CachyOS LTS → Arch LTS (emergency)"
 }
 
-setup_boot_failure_recovery_system() {
-    log_info "Setting up intelligent boot failure recovery system..."
+# Setup intelligent boot recovery system
+# Automatically shows recovery menu after first failed boot with forced reboot
 
-    # Create boot failure counter file
-    sudo touch /var/cache/cachyos-boot-count
-    sudo chmod 644 /var/cache/cachyos-boot-count
 
-    # Create emergency loader config backup
-    backup_file "/boot/loader/loader.conf"
 
-    # Create recovery script that systemd-boot can trigger
-    cat <<'EOF' | sudo tee /usr/local/bin/cachyos-boot-recovery >/dev/null
-#!/bin/bash
-#
-# CachyOS Boot Recovery Script
-# Triggered when boot failure count reaches 3
-#
-# This script creates recovery entries for systemd-boot
 
-RECOVERY_COUNT_FILE="/var/cache/cachyos-boot-count"
-RECOVERY_ENTRIES_DIR="/boot/loader/entries/recovery"
 
-# Create recovery entries directory
-mkdir -p "$RECOVERY_ENTRIES_DIR"
-
-# Current kernel (check what failed to boot)
-CURRENT_ENTRY=$(efibootmgr | grep "Arch Linux" | head -1 | cut -d'*' -f2 | xargs)
-if [[ -z "$CURRENT_ENTRY" ]]; then
-    CURRENT_ENTRY="Linux Boot Manager"
-fi
-
-# Create recovery entries
-cat > "$RECOVERY_ENTRIES_DIR/arch-recovery-rollback.conf" << RECOVERY
-title Arch Linux Recovery - Snapper Rollback
-linux /vmlinuz-linux
-initrd /initramfs-linux.img
-options root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -n -o SOURCE /)") rw quiet splash recovery=rollback count=$(cat $RECOVERY_COUNT_FILE)
-RECOVERY
-
-cat > "$RECOVERY_ENTRIES_DIR/arch-recovery-kernel-lts.conf" << RECOVERY
-title Arch Linux Recovery - Switch to LTS Kernel
-linux /vmlinuz-linux-lts
-initrd /initramfs-linux-lts.img
-options root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -n -o SOURCE /)") rw quiet splash recovery=lts count=$(cat $RECOVERY_COUNT_FILE)
-RECOVERY
-
-cat > "$RECOVERY_ENTRIES_DIR/arch-recovery-debug.conf" << RECOVERY
-title Arch Linux Recovery - Debug Mode
-linux /vmlinuz-linux
-initrd /initramfs-linux.img
-options root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -n -o SOURCE /)") rw quiet splash recovery=debug systemd.log_level=debug systemd.log_target=console
-RECOVERY
-
-# Create modified loader.conf for recovery mode
-cat > "/boot/loader/loader.conf.recovery" << RECOVERY
-timeout 30
-console-mode keep
-editor 1
-default arch-recovery-rollback
-auto-entries 0
-auto-reboot 0
-beep 0
-
-# Recovery mode activated - $CURRENT_ENTRY failed to boot $(cat $RECOVERY_COUNT_FILE) times
-# Select recovery option:
-# 1. Rollback to previous snapshot
-# 2. Switch to LTS kernel permanently  
-# 3. Debug mode for troubleshooting
-RECOVERY
-
-# Activate recovery mode by replacing loader.conf
-cp "/boot/loader/loader.conf" "/boot/loader/loader.conf.backup"
-cp "/boot/loader/loader.conf.recovery" "/boot/loader/loader.conf"
-
-echo "Boot recovery mode activated. Reboot and select recovery option."
-EOF
-
-    sudo chmod +x /usr/local/bin/cachyos-boot-recovery
-
-    # Create systemd service to count boot failures
-    cat <<'EOF' | sudo tee /etc/systemd/system/cachyos-boot-counter.service >/dev/null
-[Unit]
-Description=CachyOS Boot Failure Counter
-DefaultDependencies=no
-After=systemd-boot-system-token.service
-Before=sysinit.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/bin/cachyos-boot-failure-counter.sh
-StandardOutput=journal+console
-StandardError=journal+console
-
-[Install]
-WantedBy=sysinit.target
-EOF
-
-    # Create boot failure counter script
-    cat <<'EOF' | sudo tee /usr/local/bin/cachyos-boot-failure-counter.sh >/dev/null
-#!/bin/bash
-#
-# CachyOS Boot Failure Counter
-# Increments counter on boot attempts, triggers recovery menu at threshold
-
-COUNT_FILE="/var/cache/cachyos-boot-count"
-THRESHOLD=3
-
-# Initialize count file if it doesn't exist
-if [[ ! -f "$COUNT_FILE" ]]; then
-    echo "0" > "$COUNT_FILE"
-fi
-
-# Read current count
-CURRENT_COUNT=$(cat "$COUNT_FILE")
-NEW_COUNT=$((CURRENT_COUNT + 1))
-
-# Update count
-echo "$NEW_COUNT" > "$COUNT_FILE"
-
-# Check if we've reached the recovery threshold
-if [[ $NEW_COUNT -ge $THRESHOLD ]]; then
-    logger "CachyOS: Boot failure count reached $NEW_COUNT (threshold: $THRESHOLD). Activating recovery mode."
-    /usr/local/bin/cachyos-boot-recovery
-else
-    logger "CachyOS: Boot attempt $NEW_COUNT of $THRESHOLD allowed before recovery."
-fi
-
-# Reset counter on successful boot (this runs at the end of successful boots)
-# This will be overridden if boot fails before reaching login
-if [[ $(systemctl is-system-running) == "running" ]]; then
-    echo "0" > "$COUNT_FILE"
-    logger "CachyOS: Successful boot - reset failure counter to 0"
-fi
-EOF
-
-    sudo chmod +x /usr/local/bin/cachyos-boot-failure-counter.sh
-
-    # Create reset service that runs after successful login
-    cat <<'EOF' | sudo tee /etc/systemd/system/cachyos-boot-success-reset.service >/dev/null
-[Unit]
-Description=CachyOS Boot Success Reset
-After=multi-user.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/cachyos-boot-success-reset.sh
-RemainAfterExit=no
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    cat <<'EOF' | sudo tee /usr/local/bin/cachyos-boot-success-reset.sh >/dev/null
-#!/bin/bash
-# Reset boot failure counter on successful system startup
-echo "0" > /var/cache/cachyos-boot-count
-logger "CachyOS: System reached multi-user.target - boot success confirmed, counter reset"
-EOF
-
-    sudo chmod +x /usr/local/bin/cachyos-boot-success-reset.sh
-
-    # Enable the services
-    execute "sudo systemctl daemon-reload" "Reloading systemd daemon"
-    execute "sudo systemctl enable cachyos-boot-counter.service cachyos-boot-success-reset.service" "Enabling boot failure counter services"
-
-    log_info "Boot failure recovery system configured!"
-    log_info "3 consecutive boot failures will trigger recovery menu"
-    log_info "Manual recovery activation: Hold Space during boot"
-}
 
 process_system_selection() {
     local selections="$1"
@@ -2228,7 +2826,6 @@ process_graphics_selection() {
             "drivers") setup_graphics_drivers ;;
             "themes") setup_themes ;;
             "splash") setup_systemd_boot_logo ;;
-            "gdm") setup_gdm_logo ;;
         esac
     done
 }
@@ -2327,62 +2924,142 @@ main() {
     # Show welcome message
     show_welcome
 
-    # Main menu loop
+    # Main menu loop for selection
     while true; do
-        local choice
         choice=$(show_main_menu)
 
         case "$choice" in
-            1)  # System Configuration
-                local selections
-                selections=$(show_system_menu)
-                [[ -n "$selections" ]] && process_system_selection "$selections"
-                ;;
-            2)  # Graphics & Display
-                local selections
-                selections=$(show_graphics_menu)
-                [[ -n "$selections" ]] && process_graphics_selection "$selections"
-                ;;
-            3)  # Development Tools
-                local selections
-                selections=$(show_development_menu)
-                [[ -n "$selections" ]] && process_development_selection "$selections"
-                ;;
-            4)  # Applications
-                local selections
-                selections=$(show_applications_menu)
-                [[ -n "$selections" ]] && process_applications_selection "$selections"
-                ;;
-            5)  # Gaming
-                setup_gaming
-                ;;
-            6)  # Virtualization
-                setup_virtualization
-                ;;
-            7)  # System Enhancements
-                local selections
-                selections=$(show_system_enhancements_menu)
-                [[ -n "$selections" ]] && process_system_enhancements_selection "$selections"
-                ;;
-            8)  # GNOME Menu Organization
-                setup_gnome_menu_organization
-                ;;
-            9)  # GNOME Extensions
-                setup_gnome_extensions
-                ;;
-            10) # Complete Setup
-                run_complete_setup
-                ;;
-            11) # Exit
-                break
-                ;;
+            1) collect_system_config ;;
+            2) collect_graphics ;;
+            3) collect_shell_terminal ;;
+            4) collect_applications ;;
+            5) collect_development ;;
+            6) collect_gaming ;;
+            7) collect_multimedia ;;
+            8) collect_services ;;
+            9) collect_boot ;;
+            10) collect_themes ;;
+            11) collect_enhancements ;;
+            12) collect_cleanup ;;
+            13) collect_all ;;
+            14|"") break ;;
         esac
+
+        # If functions selected, ask if ready to execute
+        if [[ ${#to_execute[@]} -gt 0 ]]; then
+            dialog --title "Ready to Execute" \
+                   --yesno "Selected ${#to_execute[@]} functions. Proceed with execution?" \
+                   ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+            if [[ $? -eq 0 ]]; then
+                break
+            fi
+        fi
     done
+
+    # Execute selected functions with GUI progress
+    if [[ ${#to_execute[@]} -gt 0 ]]; then
+        execute_selected_functions
+    fi
 
     # Cleanup
     rm -rf "${CONFIG[TEMP_DIR]}"
 
+    if [[ ${#to_execute[@]} -gt 0 ]]; then
+        log_info "ArchPI completed successfully!"
+
+        # Ask for reboot
+        dialog --title "Setup Complete" \
+               --yesno "Setup completed! Reboot now to apply all changes?" \
+               ${CONFIG[DIALOG_HEIGHT]} ${CONFIG[DIALOG_WIDTH]}
+
+        if [[ $? -eq 0 ]]; then
+            log_info "Rebooting system..."
+            sudo reboot
+        fi
+    else
+        log_info "No functions selected. Exiting."
+    fi
+
     log_info "Post-installation script completed."
+}
+
+# Remove unnecessary GNOME packages for a cleaner system
+remove_unnecessary_packages() {
+    log_info "Removing unnecessary GNOME packages..."
+
+    # List of packages that can be safely removed in most GNOME setups
+    local packages_to_remove=(
+        "gnome-contacts"
+        "gnome-maps"
+        "gnome-weather"
+        "gnome-clocks"
+        "gnome-calendar"
+        "totem"
+        "gnome-music"
+        "gnome-photos"
+    )
+
+    # Check which packages are installed and remove them
+    local installed_packages=()
+    for pkg in "${packages_to_remove[@]}"; do
+        if pacman -Qi "$pkg" &>/dev/null; then
+            installed_packages+=("$pkg")
+        fi
+    done
+
+    if [[ ${#installed_packages[@]} -gt 0 ]]; then
+        log_info "Removing packages: ${installed_packages[*]}"
+        execute "sudo pacman -Rns --noconfirm ${installed_packages[*]}" "Removing unnecessary GNOME packages"
+    else
+        log_info "No unnecessary packages found to remove"
+    fi
+}
+
+# Hide unused applications from GNOME menu
+hide_gnome_menu_apps() {
+    log_info "Hiding unused applications from GNOME menu..."
+
+    # Create desktop file overrides to hide applications
+    local hide_apps=(
+        "org.gnome.Contacts.desktop"
+        "org.gnome.Maps.desktop"
+        "org.gnome.Weather.desktop"
+        "org.gnome.Clocks.desktop"
+        "org.gnome.Calendar.desktop"
+        "org.gnome.Totem.desktop"
+        "org.gnome.Music.desktop"
+        "org.gnome.Photos.desktop"
+    )
+
+    for app in "${hide_apps[@]}"; do
+        if [[ -f "/usr/share/applications/$app" ]]; then
+            sudo mkdir -p "/usr/share/applications/hidden"
+            sudo mv "/usr/share/applications/$app" "/usr/share/applications/hidden/" 2>/dev/null || true
+        fi
+    done
+
+    log_info "Unused applications hidden from GNOME menu"
+}
+
+execute_selected_functions() {
+    local total=${#to_execute[@]}
+    local current=0
+
+    echo "Starting execution of selected functions..."
+    for func in "${to_execute[@]}"; do
+        current=$((current + 1))
+        echo "[$current/$total] Executing $func..."
+
+        if declare -f "$func" > /dev/null; then
+            $func
+            echo "✓ $func completed."
+        else
+            echo "✗ Function $func not found."
+        fi
+    done
+
+    echo "All selected functions have been executed. Check full logs at ${CONFIG[LOG_FILE]}"
+}
 
     # Ask for reboot
     dialog --title "Setup Complete" \
@@ -2422,40 +3099,4 @@ case "${1:-}" in
         ;;
 esac
     
-# GNOME Menu Organization Functions
-# Organize GNOME applications menu with custom folder structure
-# Creates categorized folders and assigns applications to appropriate categories
-# Apps not in folders remain in main menu
-setup_gnome_menu_organization() {
-    log_info "Organizing GNOME applications menu with custom folder structure..."
-    
-    # Define folder categories (GNOME standard categories mapping)
-    declare -A FOLDER_CATEGORIES=(
-        ["Android"]="Development;IDE"
-        ["Workflow"]="Development;Building" 
-        ["Containers"]="Utility;System"
-        ["Office"]="Office;TextEditor"
-        ["Media Edit"]="AudioVideo;Graphics"
-        ["Games"]="Game"
-        ["Utilities"]="Utility;Monitor"
-        ["Tools"]="System;Utility"
-        ["System"]="System;Settings"
-    )
-    
-    # Applications to stay in main menu (not in folders)
-    declare -a MAIN_MENU_APPS=(
-        "software" "org.gnome.Software"
-        "files" "org.gnome.Nautilus" 
-        "calculator" "org.gnome.Calculator"
-        "edge" "com.microsoft.Edge"
-        "varia" "io.github.giantpinkrobots.varia"
-        "packet" "io.github.nozwock.Packet"
-        "steam" "com.valvesoftware.Steam"
-        "heroic" "com.heroicgameslauncher.hgl"
-        "zapzap" "com.rstoya.zapzap"
-        "telegram" "org.telegram.desktop"
-        "discord" "com.discordapp.Discord"
-    )
-    
-    log_info "GNOME menu organization completed successfully!"
-}
+
